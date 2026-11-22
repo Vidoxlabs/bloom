@@ -1,0 +1,21 @@
+name: Verify shared graphical desktop
+on:
+  push:
+    paths:
+      - compose.desktop.yaml
+      - scripts/desktop.mjs
+      - checks/desktop.sh
+      - .github/workflows/desktop.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shared-desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: bash checks/desktop.sh

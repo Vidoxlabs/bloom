@@ -7,6 +7,9 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { Harness } from '../src/harness.mjs';
+import { Store } from '../src/store.mjs';
+import { createHandler } from '../src/http.mjs';
 import { createServerProvider } from '../src/models.mjs';
 
 // A real OpenCode executable calls a local recording model. No paid provider or daily profile is used.
@@ -19,7 +22,20 @@ test('OpenCode 1.x accepts Bloom sessions and returns text and usage from a loca
     if (!req.url.endsWith('/chat/completions')) { res.writeHead(404).end(); return; }
     const body = JSON.parse(Buffer.concat(parts));
     seen.push(body); t.diagnostic('Recording model received a generation.');
-    const answer = { message: 'Reviewed.', title: 'Notes', document: 'Four samples.' };
+    const context = body.messages.flatMap(m => typeof m.content === 'string' ? [m.content] : (m.content ?? []).map(p => p.text ?? '')).join('\n');
+    let answer = { message: 'Reviewed.', title: 'Notes', document: 'Four samples.' };
+    if (context.includes('You coordinate a group.')) {
+      answer = {message:'Three owners for this brief.',agents:[
+        {name:'Archivist',charter:'Extract the sample identifier.',stage:'research',assignment:'Read the notebook.'},
+        {name:'Auditor',charter:'Check source evidence.',stage:'review',assignment:'Check the identifier.'},
+        {name:'Editor',charter:'Assemble a guide.',stage:'assemble',assignment:'Write the approved guide.'},
+      ]};
+    } else if (context.includes('You are a specialist')) {
+      if (context.includes('"stage":"research"') && context.includes('FIELD-041')) answer = {message:'Located the field entry.',title:'Finding',document:'Archivist verified FIELD-041.'};
+      else if (context.includes('"stage":"review"') && context.includes('Archivist verified FIELD-041.')) answer = {message:'Source agrees.',title:'Review',document:'Auditor accepted FIELD-041.',verdict:'approve'};
+      else if (context.includes('"stage":"assemble"') && context.includes('Auditor accepted FIELD-041.')) answer = {message:'Guide ready.',title:'Sample guide',document:'The reviewed identifier is FIELD-041.'};
+      else answer = {message:'Missing upstream evidence.',title:'Hold',document:'The handoff is incomplete.',verdict:'revise'};
+    }
     const base = {id:'chatcmpl-bloom-fixture',created:1,model:'review',object:'chat.completion.chunk'};
     if (!body.stream) {
       res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({...base,object:'chat.completion',choices:[{index:0,message:{role:'assistant',content:JSON.stringify(answer)},finish_reason:'stop'}],usage:{prompt_tokens:24,completion_tokens:9,total_tokens:33}})); return;
@@ -84,5 +100,30 @@ test('OpenCode 1.x accepts Bloom sessions and returns text and usage from a loca
   assert.equal(JSON.parse(result.text).document,'Four samples.');
   assert.equal(result.usage.total,33);
   assert.ok(seen.some(r => JSON.stringify(r.messages).includes('Summarize the sample count.')));
+  stage = 'end-to-end OpenCode team run';
+  const dataDirectory = join(root,'bloom');
+  const store = new Store(dataDirectory);
+  const harness = new Harness({store,dataDirectory,adapters:[],teamProvider:provider});
+  const server = createServer(createHandler(harness));
+  server.listen(0,'127.0.0.1'); await once(server,'listening');
+  t.after(async () => { server.closeAllConnections(); server.close(); await harness.close(); store.close(); });
+  const local = 'http://127.0.0.1:'+server.address().port;
+  const post = async (path,value) => {
+    const res = await fetch(local+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});
+    assert.ok(res.ok,'POST '+path+' returned '+res.status); return res.json();
+  };
+  const team = await post('/api/teams',{name:'Field lead',model:'fixture/review'});
+  const source = await post('/api/teams/'+team.id+'/sources',{title:'Field notebook',text:'Identifier FIELD-041'});
+  await post('/api/sessions/'+team.id+'/turns',{text:'Write and review a short field guide.',files:[source.id]});
+  await harness.active.get(team.id)?.task;
+  const events = store.eventsAfter(team.id,0);
+  assert.equal(events.at(-1).data.status,'finished',JSON.stringify(events.at(-1)));
+  const posts = events.filter(e => e.type === 'team.message');
+  assert.deepEqual(posts.map(e => e.data.author),['Field lead','Archivist','Auditor','Editor']);
+  const usage = events.filter(e => e.type === 'team.usage');
+  assert.equal(usage.length,4); assert.equal(usage.at(-1).data.measuredTotal,132);
+  const final = await (await fetch(local+'/api/teams/'+team.id+'/files/'+posts.at(-1).data.file.id)).json();
+  assert.equal(final.text,'The reviewed identifier is FIELD-041.'); assert.equal(final.parents.length,3);
+  t.diagnostic('Verified four OpenCode-backed roles, four usage records and three source links.');
   stage = 'finished';
 });

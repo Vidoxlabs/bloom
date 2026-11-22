@@ -26,6 +26,13 @@ jobs:
       - run: npm install --no-save --package-lock=false playwright@1.65.1
       - run: npx playwright install --with-deps chromium
       - run: node --test checks/browser.mjs
+        env:
+          BLOOM_UI_EVIDENCE: ${{ runner.temp }}/bloom-ui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bloom-browser-views
+          path: ${{ runner.temp }}/bloom-ui
+          retention-days: 7
       - run: docker compose -f compose.desktop.yaml config -q
         env:
           BLOOM_DESKTOP_PATH: /tmp/bloom-desktop
