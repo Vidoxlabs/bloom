@@ -135,3 +135,20 @@ test('streams persisted events in order, resumes from Last-Event-ID, and keeps a
   assert.deepEqual(resumed.eventIds(), history.slice(2).map(event => event.seq));
   resumed.end();
 });
+
+test('serves the persona library and recruits a persona onto a team', async t => {
+  const { send } = setup(t);
+  assert.deepEqual((await send('/api/personas')).json(), []);
+  const created = await send('/api/personas', { method: 'POST', body: { name: 'Iris', charter: 'Find sources.', stage: 'research' } });
+  assert.equal(created.status, 201);
+  const iris = created.json();
+  assert.equal((await send('/api/personas', { method: 'POST', body: { name: 'IRIS', charter: 'x', stage: 'review' } })).json().code, 'PERSONA_EXISTS');
+  assert.equal((await send('/api/personas/' + iris.id, { method: 'PUT', body: { name: 'Iris', charter: 'Find primary sources.', stage: 'research', model: 'provider/fast' } })).json().model, 'provider/fast');
+  const team = (await send('/api/teams', { method: 'POST', body: { name: 'Desk lead' } })).json();
+  const recruited = await send('/api/teams/' + team.id + '/members', { method: 'POST', body: { persona: iris.id } });
+  assert.equal(recruited.status, 200);
+  assert.deepEqual(recruited.json().members.map(m => [m.name, m.charter, m.model]), [['Iris', 'Find primary sources.', 'provider/fast']]);
+  assert.deepEqual((await send('/api/personas/' + iris.id, { method: 'DELETE', body: {} })).json(), { deleted: true });
+  assert.equal((await send('/api/personas/' + iris.id, { method: 'DELETE', body: {} })).json().code, 'PERSONA_NOT_FOUND');
+  assert.equal((await send('/api/teams/' + team.id)).json().members.length, 1);
+});

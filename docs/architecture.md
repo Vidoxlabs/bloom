@@ -12,8 +12,8 @@ Bloom implements the shared-computer idea locally. Every team can discover ordin
 
 | Concept | Local implementation |
 | --- | --- |
-| VI (Virtual Intelligence) | The head holds a name and charter. A structured model response creates or updates persistent specialist profiles with a jurisdiction, voice and stage. |
-| OAI (Open AI Instance) | A provider-backed generation fulfills a role. The same profile can run on another configured model. Each dispatch owns its input and reports its usage independently. |
+| VI (Virtual Intelligence) | The head holds a name and charter. A structured model response creates or updates persistent specialist profiles with a jurisdiction, voice and stage. A persona library, shared by every team on the installation, keeps saved profiles. The head sees it while planning; recruiting a persona copies its saved jurisdiction, voice, stage and optional model onto the team, and the head writes only the assignment. |
+| OAI (Open AI Instance) | A provider-backed generation fulfills a role. The same profile can run on another configured model, and a persona with a preferred model runs on it. Each dispatch owns its input and reports its usage independently. |
 | LA (Logical Agent) | The head can assign the verify stage to a named deterministic worker. It re-reads the admitted files and verifies their hashes without spending a model call. |
 | Memorix | Owner-saved notes are durable and scoped to a team. Reading evidence or posting a message creates no durable personal note. |
 | Tri-Cluster | Three logical roles run locally. SQLite holds authoritative records and provenance edges. A bounded in-process TTL cache serves hot recall. File-to-file edges connect inputs with resulting artifacts. There is no external graph or cache daemon to install. |

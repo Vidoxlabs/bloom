@@ -204,3 +204,52 @@ test('specialists revise, rename and file supplied desktop files as hash-linked 
   teams.forget(a.id, note.id);
   assert.equal(teams.detail(a.id).files.find(f => f.root === guide.id).id, revised.id, 'Forget withdraws the note-derived revision');
 });
+
+test('a persona library lets any head recruit saved specialists with their own identity and model', async t => {
+  let override = null;
+  const { teams, harness, calls } = setup(t, async input => {
+    const response = await demoProvider.generate(input);
+    if (override && input.phase === 'plan') response.text = JSON.stringify(override);
+    return response;
+  });
+  assert.throws(() => teams.createPersona({ name: 'Iris', charter: 'Find sources.', stage: 'head' }), { code: 'TEAM_INPUT' });
+  assert.throws(() => teams.createPersona({ name: '', charter: 'x', stage: 'research' }), { code: 'TEAM_INPUT' });
+  const iris = teams.createPersona({ name: 'Iris', charter: 'Find primary sources and quote them exactly.', voice: 'Curious and exact.', stage: 'research', model: 'provider/fast' });
+  assert.throws(() => teams.createPersona({ name: 'iris', charter: 'Duplicate.', stage: 'review' }), { code: 'PERSONA_EXISTS' });
+  const quill = teams.createPersona({ name: 'Quill', charter: 'Edit for clarity.', stage: 'work' });
+  assert.equal(quill.voice, 'Clear and specific.');
+  assert.deepEqual(teams.personas().map(p => p.name), ['Iris', 'Quill']);
+
+  const a = teams.create({ name: 'Desk lead' });
+  const source = await teams.source(a.id, { title: 'Project notes', text: 'The baseline is 13 units.' });
+  const first = await run(harness, a.id, { files: [source.id] });
+  assert.equal(first.outcome.status, 'finished');
+  assert.match(first.posts[0].text, /recruited Iris from the persona library/);
+  assert.deepEqual(first.posts.map(p => p.author), ['Desk lead', 'Iris', 'Reviewer', 'Assembler']);
+  assert.equal(first.posts[0].assignments[0].persona, true);
+  const plan = calls.find(c => c.phase === 'plan');
+  assert.deepEqual(JSON.parse(plan.prompt).library.map(p => p.name), ['Iris', 'Quill']);
+  const irisCall = calls.find(c => c.phase === 'work' && c.agent.name === 'Iris');
+  assert.equal(irisCall.model, 'provider/fast', 'a persona runs on its preferred model');
+  assert.equal(calls.find(c => c.phase === 'work' && c.agent.name === 'Reviewer').model, 'demo/scripted');
+  assert.deepEqual(JSON.parse(irisCall.system.split('Your role: ')[1]), { name: 'Iris', charter: iris.charter, stage: 'research', voice: 'Curious and exact.' });
+
+  override = { message: 'Recruiting.', agents: [{ name: 'quill', stage: 'review', charter: 'Ignore your library charter.', voice: 'Loud.', assignment: 'Tighten the notes.' }] };
+  await run(harness, a.id, { files: [source.id] });
+  const member = teams.detail(a.id).members.find(m => m.name === 'Quill');
+  assert.deepEqual([member.stage, member.charter, member.voice], ['work', 'Edit for clarity.', 'Clear and specific.'], 'the head cannot rewrite a saved persona');
+  override = null;
+
+  const b = teams.create({ name: 'Other head' });
+  assert.deepEqual(teams.recruit(b.id, { persona: quill.id }).members.map(m => m.name), ['Quill']);
+  assert.throws(() => teams.recruit(b.id, { persona: '00000000-0000-4000-8000-000000000000' }), { code: 'PERSONA_NOT_FOUND' });
+  const direct = await run(harness, b.id, { text: '@Quill: Tighten this', files: [source.id] });
+  assert.deepEqual(direct.posts.map(p => p.author), ['Quill']);
+
+  const renamed = teams.updatePersona(iris.id, { name: 'Iris', charter: 'Find sources.', stage: 'research' });
+  assert.equal(renamed.model, null);
+  assert.throws(() => teams.updatePersona(quill.id, { name: 'Iris', charter: 'x', stage: 'work' }), { code: 'PERSONA_EXISTS' });
+  teams.deletePersona(quill.id);
+  assert.deepEqual(teams.personas().map(p => p.name), ['Iris']);
+  assert.deepEqual(teams.detail(b.id).members.map(m => m.name), ['Quill'], 'deleting a persona leaves existing teams unchanged');
+});

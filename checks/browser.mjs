@@ -21,7 +21,7 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.getByRole('button',{name:'Create a team',exact:true}).click();
   assert.equal(await page.locator('#kind').inputValue(),'team');
   for (const [label, hint] of [['Head agent name','Plans the work and creates specialists for it.'],['Jurisdiction','What this agent is responsible for.']]) {
-    assert.equal(await page.getByLabel(label,{exact:true}).evaluate(field => document.getElementById(field.getAttribute('aria-describedby')).textContent),hint);
+    assert.equal(await page.locator('#session-form').getByLabel(label,{exact:true}).evaluate(field => document.getElementById(field.getAttribute('aria-describedby')).textContent),hint);
   }
   await page.getByLabel('Head agent name',{exact:true}).fill('Desk lead');
   await page.getByRole('button',{name:'Create team',exact:true}).click();
@@ -91,5 +91,48 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.getByRole('button',{name:/^Revision 1 · Assembler · Reviewed guide/}).click();
   await page.locator('#reader-lineage').filter({hasText:'Guides · Revision 1'}).waitFor();
   if (process.env.BLOOM_UI_EVIDENCE) await page.screenshot({path:join(process.env.BLOOM_UI_EVIDENCE,'revision-history.png')});
+  await page.getByRole('button',{name:'Close',exact:true}).last().click();
+
+  // Persona library: save a specialist once, and any head agent can recruit it.
+  const library = page.getByRole('region',{name:'Personas'});
+  await library.getByText('Saved specialists any head agent can recruit by name.').waitFor();
+  await library.getByRole('button',{name:'+ New',exact:true}).click();
+  const personaForm = page.locator('#persona-dialog[open]');
+  await personaForm.getByRole('heading',{name:'New persona',exact:true}).waitFor();
+  assert.equal(await personaForm.getByLabel('Model',{exact:true}).evaluate(field => document.getElementById(field.getAttribute('aria-describedby')).textContent),"Leave blank to use the team's model.");
+  await personaForm.getByLabel('Name',{exact:true}).fill('Iris');
+  await personaForm.getByLabel('Jurisdiction',{exact:true}).fill('Find primary sources and quote them exactly.');
+  await personaForm.getByLabel('Voice',{exact:true}).fill('Curious and exact.');
+  await personaForm.getByRole('combobox',{name:/^Stage/}).selectOption('research');
+  await personaForm.getByRole('button',{name:'Save',exact:true}).click();
+  await library.getByText('Iris · Research',{exact:true}).waitFor();
+  await page.getByLabel('Message').fill('Research the notebook again.');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await page.getByText('I assigned three steps and recruited Iris from the persona library.').waitFor();
+  await page.locator('#members summary',{hasText:/^Iris · Research$/}).waitFor();
+  const reviewer = page.locator('#members details',{hasText:'Reviewer · Review'});
+  await reviewer.locator('summary').click();
+  await reviewer.getByRole('button',{name:'Save as persona',exact:true}).click();
+  assert.equal(await personaForm.getByLabel('Name',{exact:true}).inputValue(),'Reviewer');
+  assert.equal(await personaForm.getByRole('combobox',{name:/^Stage/}).inputValue(),'review');
+  await personaForm.getByRole('button',{name:'Save',exact:true}).click();
+  await library.getByText('Reviewer · Review',{exact:true}).waitFor();
+
+  await page.locator('#new-session').click();
+  await page.getByLabel('Head agent name',{exact:true}).fill('Second desk');
+  await page.getByRole('button',{name:'Create team',exact:true}).click();
+  await page.getByRole('heading',{name:'Second desk',exact:true}).waitFor();
+  await library.getByRole('button',{name:'Add Reviewer to team',exact:true}).click();
+  await page.locator('#members summary',{hasText:/^Reviewer · Review$/}).waitFor();
+  await library.getByRole('button',{name:'Edit Iris',exact:true}).click();
+  await personaForm.getByRole('heading',{name:'Edit Iris',exact:true}).waitFor();
+  page.once('dialog',dialog => dialog.accept());
+  await personaForm.getByRole('button',{name:'Delete',exact:true}).click();
+  await library.getByText('Iris · Research',{exact:true}).waitFor({state:'detached'});
+  if (process.env.BLOOM_UI_EVIDENCE) await page.screenshot({path:join(process.env.BLOOM_UI_EVIDENCE,'persona-library.png')});
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true);
+  }
   assert.deepEqual(errors,[]);
 });

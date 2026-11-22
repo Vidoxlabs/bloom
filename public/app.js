@@ -358,7 +358,7 @@ try {
   $('runtime').textContent = info.teamProvider.label;
   $('team-model').value = info.teamProvider.model;
   $('workspace').value = info.defaultWorkspace ?? '';
-  await refreshSessions();
+  await Promise.all([refreshSessions(), team.loadPersonas()]);
   const last = state.sessions.find(session => session.id === localStorage.getItem('vibloom.session'));
   if (last ?? state.sessions[0]) selectSession(last ?? state.sessions[0]);
 } catch (failure) {

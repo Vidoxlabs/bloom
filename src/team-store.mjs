@@ -40,6 +40,9 @@ export class TeamStore {
         id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, team TEXT NOT NULL REFERENCES teams,
         private_epoch INTEGER, sha256 TEXT NOT NULL, filename TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL, source_url TEXT);
+      CREATE TABLE IF NOT EXISTS personas (
+        id TEXT PRIMARY KEY, name TEXT COLLATE NOCASE NOT NULL UNIQUE, charter TEXT NOT NULL, voice TEXT NOT NULL,
+        stage TEXT NOT NULL, model TEXT, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS file_links (
         child TEXT NOT NULL REFERENCES desktop_files, parent TEXT NOT NULL REFERENCES desktop_files,
         PRIMARY KEY(child,parent));
@@ -47,6 +50,9 @@ export class TeamStore {
     const columns = new Set(this.db.prepare('PRAGMA table_info(desktop_files)').all().map(column => column.name));
     for (const [name, type] of [['root', 'TEXT'], ['revision', 'INTEGER'], ['folder', 'TEXT']]) {
       if (!columns.has(name)) this.db.exec(`ALTER TABLE desktop_files ADD COLUMN ${name} ${type}`);
+    }
+    if (!this.db.prepare('PRAGMA table_info(members)').all().some(column => column.name === 'model')) {
+      this.db.exec('ALTER TABLE members ADD COLUMN model TEXT');
     }
   }
 
@@ -61,11 +67,37 @@ export class TeamStore {
       .run(id, name, charter, calls, tokens);
     this.store.db.prepare('UPDATE sessions SET title=? WHERE id=?').run(name, id);
   }
-  members(id) { return this.db.prepare('SELECT name,charter,voice,stage FROM members WHERE team=? ORDER BY rowid').all(id); }
+  members(id) { return this.db.prepare('SELECT name,charter,voice,stage,model FROM members WHERE team=? ORDER BY rowid').all(id); }
   upsert(id, member) {
-    this.db.prepare(`INSERT INTO members VALUES (?,?,?,?,?) ON CONFLICT(team,name) DO UPDATE
-      SET charter=excluded.charter,voice=excluded.voice,stage=excluded.stage`)
-      .run(id, member.name, member.charter, member.voice, member.stage);
+    this.db.prepare(`INSERT INTO members (team,name,charter,voice,stage,model) VALUES (?,?,?,?,?,?) ON CONFLICT(team,name) DO UPDATE
+      SET charter=excluded.charter,voice=excluded.voice,stage=excluded.stage,model=excluded.model`)
+      .run(id, member.name, member.charter, member.voice, member.stage, member.model ?? null);
+  }
+  personas() { return this.db.prepare('SELECT id,name,charter,voice,stage,model,created_at FROM personas ORDER BY name COLLATE NOCASE').all(); }
+  persona(personaId) {
+    const persona = this.db.prepare('SELECT id,name,charter,voice,stage,model,created_at FROM personas WHERE id=?').get(personaId);
+    if (!persona) throw new BloomError('PERSONA_NOT_FOUND', 'Persona not found.', 404);
+    return persona;
+  }
+  savePersona(persona, personaId = null) {
+    const clash = this.db.prepare('SELECT id FROM personas WHERE name=? COLLATE NOCASE').get(persona.name);
+    if (clash && clash.id !== personaId) throw new BloomError('PERSONA_EXISTS', 'A persona with this name is already in the library.', 409);
+    if (personaId) {
+      this.persona(personaId);
+      this.db.prepare('UPDATE personas SET name=?,charter=?,voice=?,stage=?,model=? WHERE id=?')
+        .run(persona.name, persona.charter, persona.voice, persona.stage, persona.model, personaId);
+      return this.persona(personaId);
+    }
+    if (this.db.prepare('SELECT COUNT(*) AS n FROM personas').get().n >= 64) {
+      throw new BloomError('PERSONA_LIMIT', 'The library holds 64 personas. Delete one to add another.', 409);
+    }
+    const id = randomUUID();
+    this.db.prepare('INSERT INTO personas VALUES (?,?,?,?,?,?,?)')
+      .run(id, persona.name, persona.charter, persona.voice, persona.stage, persona.model, new Date().toISOString());
+    return this.persona(id);
+  }
+  deletePersona(personaId) {
+    if (!this.db.prepare('DELETE FROM personas WHERE id=?').run(personaId).changes) throw new BloomError('PERSONA_NOT_FOUND', 'Persona not found.', 404);
   }
   notes(id) { return this.db.prepare('SELECT id,text FROM notes WHERE team=? ORDER BY rowid').all(id); }
   addNote(id, text) {

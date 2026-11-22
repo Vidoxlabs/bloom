@@ -17,6 +17,7 @@ The owner ruled on the review's renames after the swarm closed. These rows win o
   - under `Jurisdiction`: `What this agent is responsible for.`
   - under the `Shared desktop` heading, replacing `Select files to attach to the next message.`: `Files every agent on this computer can open and reuse. Check files to include with the next task.`
 - **`Token limit` still replaces `Token stop threshold`.** That rename was not contested.
+- **Persona library (later on 2026-11-22).** The owner asked for a persona library. It is a `Personas` section in the left sidebar, specified in section 6b. It replaces the persona part of the section 4 lock and the persona item in section 7. Memory and intent still get no screen of their own.
 - Everything else in this contract stands.
 
 ## 1. First minute
@@ -157,7 +158,7 @@ Three changes.
 
 - Team turns have no approval card and gain no Allow button.
 - Notes do not gain another cache control. The word cache remains on the usage lines. The recall wording in section 2 is the whole notes edit.
-- No new screen for memory, intent, or personas. Notes, Jurisdiction, and the roster hint lines are the whole of those ideas on this surface.
+- No new screen for memory or intent. Notes, Jurisdiction, and the roster hint lines are the whole of those ideas on this surface. Personas live in the sidebar section described in section 6b, not on a separate screen.
 
 ## 5. Usage
 
@@ -190,6 +191,17 @@ Quoted from the review, which records the lines already in the checkout. The tea
 - A rename or move shows in `Activity` as `Rename {old title}` or `File {old title}`.
 - The demo files research under `Research` and guides under `Guides`. When the guide is supplied again, the demo assembler revises it and posts `I revised the guide; the earlier version stays in its history.`
 
+## 6b. Persona library (added on owner request, 2026-11-22)
+
+A persona is a saved specialist: name, Jurisdiction, voice, stage, and an optional model. The library belongs to the installation, so every head agent can use it.
+
+- The left sidebar shows a `Personas` section under the workspace list. It has a `+ New` button and the hint `Saved specialists any head agent can recruit by name.`
+- Each row reads `{name} · {Stage word}`, using the stage words in section 6. It has two text buttons: `Edit`, and `Add to team`. `Add to team` appears only while a team is open.
+- `+ New` opens the dialog `New persona`. `Edit` opens `Edit {name}`. The fields are `Name`, `Jurisdiction` (placeholder `What is this specialist responsible for?`), `Voice` (placeholder `Clear and specific.`), `Stage` (`Research`, `Review`, `Assemble`, `Work`, `Check`) and `Model` (placeholder `Team model`, hint `Leave blank to use the team's model.`). The buttons are `Cancel` and `Save`. An edit also has `Delete`, which first asks `Delete {name} from the library? Teams that already recruited it keep their copy.`
+- In the roster, each specialist's row has `Save as persona`, which opens `New persona` filled in from that specialist. A row with its own model shows that model as a hint line.
+- The head agent sees the library when it plans. When it uses a persona's exact name, the saved Jurisdiction, voice, stage and model are used; the head only writes the assignment. The demo head recruits a saved persona for a matching stage and posts `I assigned three steps and recruited {names} from the persona library.`
+- Server messages shown in the dialog: `A persona with this name is already in the library.`, `The library holds 64 personas. Delete one to add another.` Adding to a team during a turn shows `Wait for the current turn to finish before changing the team.`
+
 ## 7. Leave out
 
 - The section 6 request to name the team expanded field `cache write`. The word on that line is `write`.
@@ -202,6 +214,6 @@ Quoted from the review, which records the lines already in the checkout. The tea
 - A new approval dialog. `Always allow` is a button on the current card.
 - A local file picker, a live computer, a terminal, or an app preview in the Shared desktop pane. Agent-operated screens remain future work (`docs/architecture.md`); this edition does not claim them.
 - The on-disk folder name and any absolute workspace path.
-- A memory-engine screen, an intent-engine screen, or a persona-engine screen.
+- A memory-engine screen or an intent-engine screen. The persona library is the sidebar section in section 6b, not a separate screen.
 - Planner-prompt edits, README edits, server fallback renames, and test edits.
 - Any string this review does not list. In particular, the empty-state paragraph, the note dialog, the source URL placeholder, and the six-file error stay.

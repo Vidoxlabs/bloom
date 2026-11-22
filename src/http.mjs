@@ -93,12 +93,23 @@ export function createHandler(harness) {
       }
       if (method === 'GET' && pathname === '/api/info') return json(response, 200, harness.info());
       if (method === 'POST' && pathname === '/api/teams') return json(response, 201, harness.teams.create(await readBody(request)));
-      const teamPath = /^\/api\/teams\/([0-9a-f-]{36})(?:\/(sources|notes|files)(?:\/([0-9a-f-]{36}))?)?$/.exec(pathname);
+      if (pathname === '/api/personas') {
+        if (method === 'GET') return json(response, 200, harness.teams.personas());
+        if (method === 'POST') return json(response, 201, harness.teams.createPersona(await readBody(request)));
+      }
+      const personaPath = /^\/api\/personas\/([0-9a-f-]{36})$/.exec(pathname);
+      if (personaPath && method === 'PUT') return json(response, 200, harness.teams.updatePersona(personaPath[1], await readBody(request)));
+      if (personaPath && method === 'DELETE') {
+        await readBody(request);
+        return json(response, 200, harness.teams.deletePersona(personaPath[1]));
+      }
+      const teamPath = /^\/api\/teams\/([0-9a-f-]{36})(?:\/(sources|notes|files|members)(?:\/([0-9a-f-]{36}))?)?$/.exec(pathname);
       if (teamPath) {
         const [, id, kind, item] = teamPath;
         if (method === 'GET' && !kind) return json(response, 200, harness.teams.detail(id));
         if (method === 'POST' && kind === 'sources' && !item) return json(response, 201, await harness.teams.source(id, await readBody(request)));
         if (method === 'POST' && kind === 'notes' && !item) return json(response, 201, harness.teams.note(id, await readBody(request)));
+        if (method === 'POST' && kind === 'members' && !item) return json(response, 200, harness.teams.recruit(id, await readBody(request)));
         if (method === 'DELETE' && kind === 'notes' && item) {
           await readBody(request);
           return json(response, 200, harness.teams.forget(id, item));

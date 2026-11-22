@@ -92,13 +92,18 @@ const demoTeam = [
 
 export const demoProvider = {
   label: 'Scripted demo', defaultModel: 'demo/scripted',
-  async generate({ phase, agent, brief, documents, signal }) {
+  async generate({ phase, agent, brief, documents, library = [], signal }) {
     signal.throwIfAborted();
     let result;
     if (phase === 'plan') {
-      result = { message: 'I assigned three steps for this brief.', agents: demoTeam.map(({ name, stage, charter }) => ({
-        name, stage, charter, voice: 'Plain and specific.', assignment: charter,
-      })) };
+      // The scripted head recruits a saved persona for any step whose stage it covers.
+      const recruited = [];
+      const agents = demoTeam.map(({ name, stage, charter }) => {
+        const saved = library.find(persona => persona.stage === stage);
+        if (saved) recruited.push(saved.name);
+        return { name: saved?.name ?? name, stage, charter, voice: 'Plain and specific.', assignment: charter };
+      });
+      result = { message: recruited.length ? 'I assigned three steps and recruited ' + recruited.join(' and ') + ' from the persona library.' : 'I assigned three steps for this brief.', agents };
     } else {
       const role = demoTeam.find(member => member.stage === agent.stage);
       const title = role?.title ?? 'Work notes';

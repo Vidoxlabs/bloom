@@ -32,6 +32,9 @@
         <div class="form-actions"><button class="quiet" id="dismiss-session" type="button">Close</button><button class="primary" id="create-session" type="submit">Create team</button></div>
       </form>
       <nav id="session-list" aria-label="Saved workspaces"></nav>
+      <section class="personas" aria-labelledby="personas-heading"><div class="section-head"><h2 id="personas-heading">Personas</h2><button id="new-persona" class="quiet">+ New</button></div>
+        <p class="hint">Saved specialists any head agent can recruit by name.</p><ul id="personas" class="list"></ul>
+      </section>
     </aside>
     <section class="conversation" aria-label="Group conversation">
       <div class="conversation-head"><div class="session-heading"><h1 id="session-title">Workspace</h1><p id="session-path" class="path" hidden></p></div><span id="connection" class="connection" aria-live="polite"></span></div>
@@ -64,6 +67,16 @@
     <label id="source-address">Link<input id="source-url" type="url" placeholder="Website or GitHub repository"></label>
     <label><span id="body-label">Or paste text</span><textarea id="source-body" rows="8" maxlength="16000"></textarea></label>
     <p id="editor-error" class="error" role="alert"></p><div class="form-actions"><button id="editor-close" class="quiet" type="button">Cancel</button><button class="primary" type="submit">Save</button></div>
+  </form></dialog>
+  <dialog id="persona-dialog"><form id="persona-form" class="stack"><h2 id="persona-title">New persona</h2>
+    <label>Name<input id="persona-name" maxlength="40" required></label>
+    <label>Jurisdiction<textarea id="persona-charter" rows="3" maxlength="600" required placeholder="What is this specialist responsible for?"></textarea></label>
+    <label>Voice<input id="persona-voice" maxlength="300" placeholder="Clear and specific."></label>
+    <label>Stage<select id="persona-stage"><option value="research">Research</option><option value="review">Review</option><option value="assemble">Assemble</option><option value="work">Work</option><option value="verify">Check</option></select></label>
+    <label>Model<input id="persona-model" maxlength="200" placeholder="Team model" aria-describedby="persona-model-hint"></label>
+    <p class="hint field-hint" id="persona-model-hint">Leave blank to use the team's model.</p>
+    <p id="persona-error" class="error" role="alert"></p>
+    <div class="form-actions"><button id="persona-delete" class="quiet" type="button" hidden>Delete</button><button id="persona-close" class="quiet" type="button">Cancel</button><button class="primary" type="submit">Save</button></div>
   </form></dialog>
   <dialog id="reader"><div class="stack"><h2 id="reader-title"></h2><p id="reader-lineage" class="hint"></p><ul id="reader-parents" class="list"></ul>
     <p id="reader-history-label" class="hint" hidden>Other revisions</p><ul id="reader-history" class="list" aria-labelledby="reader-history-label"></ul><pre id="reader-body"></pre>

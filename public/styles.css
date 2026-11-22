@@ -113,3 +113,6 @@ pre { font: inherit; overflow-wrap: anywhere; max-height: 55vh; overflow: auto; 
   .form-actions { justify-content: start; }
 }
 @media (forced-colors: active) { .primary, .quiet, input, textarea, select, dialog { border: 1px solid ButtonText; } }
+.personas { margin-top: var(--vi-space-rhythm-6-base); padding-top: var(--vi-space-rhythm-4-base); border-top: 1px solid var(--vi-colors-border-separator-primary-base); display: grid; gap: var(--vi-space-gap-compact-default); }
+.persona { display: grid; gap: var(--vi-space-gap-dense-default); overflow-wrap: anywhere; }
+.persona-actions { display: flex; flex-wrap: wrap; margin-inline-start: calc(-1 * var(--vi-space-gap-dense-default)); }
