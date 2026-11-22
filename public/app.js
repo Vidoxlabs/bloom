@@ -359,6 +359,11 @@ $('stop').onclick = async () => {
 try {
   const info = await request('/api/info');
   state.adapterLabels = new Map(info.adapters.map(({ id, label }) => [id, label]));
+  // A coding session needs a runtime. Without one, offer teams only.
+  if (!info.adapters.length) {
+    $('kind').querySelector('option[value="direct"]')?.remove();
+    $('empty-direct').hidden = true;
+  }
   $('runtime').textContent = info.teamProvider.label;
   $('team-model').value = info.teamProvider.model;
   $('workspace').value = info.defaultWorkspace ?? '';

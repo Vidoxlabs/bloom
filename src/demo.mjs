@@ -39,7 +39,7 @@ export const demoAdapter = {
       ],
     });
     hooks.emit('assistant.delta', {
-      text: 'This demo shows how ViBloom streams activity and handles approvals. OpenCode can run real workspace tasks from the same interface.',
+      text: 'This demo shows how ViBloom streams activity and handles approvals. No coding runtime ships with Bloom yet, so real workspace tasks are not available.',
     });
     return { stopReason: 'end_turn' };
   },

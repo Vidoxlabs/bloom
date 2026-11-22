@@ -1,5 +1,6 @@
 import { BloomError } from './errors.mjs';
 import { importURL } from './sources.mjs';
+import { adoptProvider } from './provider.mjs';
 import { TeamStore, folderOf, rank } from './team-store.mjs';
 
 const bad = (message, code = 'TEAM_INPUT') => new BloomError(code, message, 400);
@@ -91,7 +92,7 @@ function planOf(result, team, library = []) {
 export class Teams {
   constructor(harness, provider) {
     this.harness = harness;
-    this.provider = provider;
+    this.provider = adoptProvider(provider);
     this.store = new TeamStore(harness.store, harness.dataDirectory);
   }
   create(body) {
@@ -203,8 +204,7 @@ export class Teams {
       const measured = Number.isSafeInteger(usage.total) && usage.total >= 0;
       if (measured) total += usage.total;
       else missing = true;
-      const costUSD = typeof response.costUSD === 'number' && Number.isFinite(response.costUSD) && response.costUSD >= 0 ? response.costUSD : null;
-      emit('team.usage', { actor, calls, limit: team.call_limit, model: response.model ?? null, usage, costUSD,
+      emit('team.usage', { actor, calls, limit: team.call_limit, model: response.model ?? null, usage, costUSD: response.costUSD,
         measuredTotal: total, incomplete: missing, tokenLimit: team.token_limit });
       check();
       if (response.complete !== true) throw new BloomError('MODEL_INCOMPLETE', 'The model did not finish its response. Downstream work was stopped.');

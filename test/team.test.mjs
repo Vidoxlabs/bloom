@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Harness } from '../src/harness.mjs';
 import { Store } from '../src/store.mjs';
-import { demoProvider, createChatProvider, createServerProvider } from '../src/models.mjs';
+import { demoProvider, createChatProvider } from '../src/models.mjs';
 
 function setup(t, generate = demoProvider.generate) {
   const dataDirectory = mkdtempSync(join(tmpdir(), 'bloom-team-'));
@@ -105,27 +105,28 @@ test('bounded calls, missing token counts, provider counts and deterministic log
   }
 });
 
-test('OpenCode HTTP adapters send the selected model and preserve cache semantics', async () => {
+test('the chat adapter posts to the endpoint it was given, with the selected model and key', async () => {
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, ...options });
-    if (url.endsWith('/session')) return Response.json({ id: 'ses_fixture' });
-    if (url.endsWith('/message')) return Response.json({ info: { role: 'assistant', finish:'stop', providerID:'local',modelID:'model',tokens:{input:10,output:5,reasoning:0,cache:{read:2,write:0}},cost:0 }, parts:[{type:'text',text:'result'}] });
     return Response.json({ choices:[{finish_reason:'stop',message:{content:'result'}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,prompt_tokens_details:{cached_tokens:2}} });
   };
   const input = { system:'Role',prompt:'Question',model:'local/model',signal:new AbortController().signal };
-  const consoleResult = await createChatProvider({ apiKey:'test-only', fetcher }).generate(input);
-  assert.equal(consoleResult.usage.total,15);
-  assert.equal(consoleResult.usage.cacheRead,2);
-  assert.equal(consoleResult.usage.cacheWrite,null);
-  assert.equal(consoleResult.costUSD,null);
-  assert.equal('costUSD' in consoleResult.usage,false);
-  assert.equal(calls[0].url,'https://opencode.ai/inference/openai/v1/chat/completions');
-  const server = await createServerProvider({baseURL:'http://127.0.0.1:5555',fetcher}).generate(input);
-  assert.equal(server.usage.total,17);
-  assert.equal(JSON.parse(calls[1].body).permission[0].action,'deny');
-  assert.deepEqual(JSON.parse(calls[2].body).model,{ providerID:'local', modelID:'model' });
+  const result = await createChatProvider({ baseURL:'http://127.0.0.1:5555/v1', apiKey:'test-only', fetcher }).generate(input);
+  assert.equal(result.usage.total,15);
+  assert.equal(result.usage.cacheRead,2);
+  assert.equal(result.usage.cacheWrite,null);
+  assert.equal(result.costUSD,null);
+  assert.equal('costUSD' in result.usage,false);
+  assert.equal(calls[0].url,'http://127.0.0.1:5555/v1/chat/completions');
+  assert.equal(calls[0].headers.authorization,'Bearer test-only');
+  assert.equal(JSON.parse(calls[0].body).model,'local/model');
+  const keyless = await createChatProvider({ baseURL:'http://127.0.0.1:5555/v1', fetcher }).generate(input);
+  assert.equal(keyless.text,'result');
+  assert.equal(calls[1].headers.authorization,undefined);
+  await assert.rejects(createChatProvider({ baseURL:'http://127.0.0.1:5555/v1', fetcher }).generate({ ...input, model: undefined }), { code: 'MODEL_REQUIRED' });
   assert.throws(() => createChatProvider({baseURL:'http://remote.example'}));
+  assert.throws(() => createChatProvider({}), /--api-base/);
 });
 
 test('forget during a model call prevents a late reply from being handed off', async t => {

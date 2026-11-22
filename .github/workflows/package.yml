@@ -41,7 +41,14 @@ jobs:
           version=${BLOOM_TAG#v}
           test "$(node -p "require('./package.json').version")" = "$version"
           name="bloom-$version"
-          git archive --format=zip --prefix="$name/" --output="$RUNNER_TEMP/$name.zip" HEAD
+          # The download carries its one runtime dependency, so it runs after extraction with no install.
+          # Fixed timestamps and a sorted file list keep the ZIP byte-identical when the job runs again.
+          epoch=$(git log -1 --format=%ct HEAD)
+          stage="$RUNNER_TEMP/stage"
+          mkdir "$stage"
+          git archive --format=tar --prefix="$name/" HEAD | tar -x -C "$stage"
+          (cd "$stage/$name" && npm install --package-lock=false --omit=dev --ignore-scripts --no-audit --no-fund)
+          (cd "$stage" && find "$name" -exec touch -h -d "@$epoch" {} + && find "$name" -type f | LC_ALL=C sort | TZ=UTC zip -X -q "$RUNNER_TEMP/$name.zip" -@)
           cd "$RUNNER_TEMP"
           sha256sum "$name.zip" > "$name.zip.sha256"
           mkdir archive-check

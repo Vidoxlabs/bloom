@@ -8,7 +8,7 @@ Give a head agent a brief and watch a team work through it in one group conversa
 
 ## Try it
 
-Download `bloom-VERSION.zip` from the [latest release](https://github.com/Vidoxlabs/bloom/releases/latest) and extract it, or clone this repository. Install Node.js 22.13 or newer and run this command from the project folder in a terminal on macOS, Linux, or Windows. The app has no npm runtime dependencies.
+Download `bloom-VERSION.zip` from the [latest release](https://github.com/Vidoxlabs/bloom/releases/latest) and extract it, or clone this repository. Install Node.js 22.13 or newer and run this command from the project folder in a terminal on macOS, Linux, or Windows. The release ZIP already holds Bloom's one runtime dependency, seed; in a clone, run `npm install` first.
 
 ```sh
 npm run demo
@@ -16,16 +16,19 @@ npm run demo
 
 Open **http://127.0.0.1:4317**, choose **Create a team** and give the head agent a name. Use **Add file** to paste some project notes, select **Try a sample task**, and send it. Open the assembler’s file in the group chat. The demo is scripted and requires no key. Its outputs and usage display identify it as a demonstration.
 
-## Connect OpenCode
+## Connect a model endpoint
 
-| Connection | Start Bloom | What runs |
-| --- | --- | --- |
-| OpenCode Console | Set `OPENCODE_API_KEY` in the environment, then run `npm start`. Enter a supported **paid** text model ID in the team form. | The team calls OpenCode’s chat completions HTTP API. Each team uses the model you select. |
-| Local OpenCode 1.x server | In a dedicated empty directory, run `opencode serve --hostname 127.0.0.1 --port 4096`. In Bloom’s directory, run `npm start -- --opencode-server http://127.0.0.1:4096`. | The head and each model-backed specialist use a fresh OpenCode session. Set `provider/model` in Bloom or use the server default. Session tool permissions are denied. Bloom handles evidence reads and file handoffs. |
-| Other chat-completions providers | Run `npm start -- --api-base http://127.0.0.1:8000/v1 --team-model local-model` with your server’s address and model. For a hosted endpoint use HTTPS and set `BLOOM_API_KEY` if needed. | Bloom uses the same team and memory logic with an OpenAI-compatible HTTP service. |
-| Coding session | Run `npm start`, then choose **Create a coding session** and select a workspace. | OpenCode runs locally over ACP using its configured providers, supports tool approvals (**Allow once**, **Always allow** when OpenCode offers it, or **Reject**) and resumes the saved conversation. |
+Teams run on any service that speaks the chat-completions HTTP API (`POST {base}/chat/completions`). Bloom names no default service.
 
-The hosted API uses `https://opencode.ai/inference/openai/v1/chat/completions`. Configure credentials in the server’s environment. An authenticated OpenCode 1.x server uses `OPENCODE_SERVER_USERNAME` and `OPENCODE_SERVER_PASSWORD`. Team HTTP calls send the brief and admitted evidence to the selected model. The console model catalog identifies supported models and billing. OpenCode's newer experimental server has a different API. [Console API](https://opencode.ai/docs/console/api/inference/) · [Model catalog](https://opencode.ai/docs/console/models/) · [ACP](https://opencode.ai/docs/cli/acp/)
+```sh
+npm start -- --api-base http://127.0.0.1:8000/v1 --team-model local-model
+```
+
+Use your server's address and model. A hosted endpoint must use HTTPS; set `BLOOM_API_KEY` in the environment if it needs a key. Team calls send the brief and admitted evidence to that endpoint. Started without `--api-base`, Bloom still opens the workspace, notes and files, and a team turn stops with a message naming the flag.
+
+Every provider runs behind [seed](https://github.com/Vidoxlabs/seed)'s provider seam: Bloom checks the adapter when it starts and checks every reply against seed's record before the team reads it. A reply outside that record stops the turn.
+
+**Coding sessions** need a coding runtime, and none ships with Bloom yet. The scripted demo runtime shows the coding view, with streamed plans, tool activity and approvals. Outside the demo, the **Create a coding session** choice is hidden, and coding sessions saved by an earlier version stay readable but cannot start a new turn.
 
 ## Work with a team
 
