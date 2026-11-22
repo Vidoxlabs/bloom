@@ -102,7 +102,7 @@ export function createOpenCodeAdapter({ command = 'opencode', prefixArgs = [] } 
       signal.addEventListener('abort', cancel, { once: true });
       try {
         const init = await client.request('initialize', {
-          protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'bloom', version: '0.2.2' },
+          protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'bloom', version: '0.3.0' },
         });
         if (init?.protocolVersion !== 1) throw new BloomError('ACP_VERSION', 'OpenCode did not negotiate ACP v1.');
         const request = { cwd: workspace, mcpServers: [] };
