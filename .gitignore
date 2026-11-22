@@ -1,0 +1,8 @@
+node_modules/
+.vibloom/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.DS_Store
+.bloom/
+bloom-data/

@@ -1,0 +1,103 @@
+import { BloomError } from './errors.mjs';
+
+const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+export function chatUsage(raw = {}) {
+  return { input: count(raw.prompt_tokens), output: count(raw.completion_tokens), total: count(raw.total_tokens),
+    cacheRead: count(raw.prompt_tokens_details?.cached_tokens ?? raw.prompt_cache_hit_tokens),
+    cacheWrite: count(raw.cache_creation_input_tokens), costUSD: amount(raw.cost) };
+}
+
+async function post(url, body, { headers, signal, fetcher }) {
+  let response;
+  try {
+    response = await fetcher(url, { method: 'POST', redirect: 'error', signal,
+      headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  } catch (error) {
+    if (signal.aborted) throw signal.reason;
+    throw new BloomError('PROVIDER_OFFLINE', 'Could not connect to the configured model endpoint.');
+  }
+  if (!response.ok) throw new BloomError('PROVIDER_REJECTED', 'The model endpoint returned HTTP ' + response.status + '. Check the model, server version and credentials.');
+  try { return await response.json(); }
+  catch { throw new BloomError('PROVIDER_RESPONSE', 'The model endpoint returned an unreadable response.'); }
+}
+
+function endpoint(value) {
+  const url = new URL(value);
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
+    throw new Error('Use an HTTPS model URL, or HTTP on loopback. Supply credentials through the environment.');
+  }
+  return url.href.replace(/\/$/, '');
+}
+
+// The coordinator only needs text and metering. Alternate model providers implement generate().
+export function createChatProvider({ baseURL = 'https://opencode.ai/inference/openai/v1', apiKey, defaultModel, fetcher = fetch } = {}) {
+  const base = endpoint(baseURL);
+  return {
+    label: new URL(base).hostname === 'opencode.ai' ? 'OpenCode API' : 'Compatible API', defaultModel,
+    async generate({ system, prompt, model, signal }) {
+      if (!model) throw new BloomError('MODEL_REQUIRED', 'Choose a model ID for the team.', 400);
+      if (new URL(base).hostname === 'opencode.ai' && !apiKey) throw new BloomError('KEY_REQUIRED', 'Set OPENCODE_API_KEY before starting Bloom, or connect a local OpenCode server.', 400);
+      const data = await post(base + '/chat/completions', { model, messages: [
+        { role: 'system', content: system }, { role: 'user', content: prompt },
+      ], stream: false }, { signal, fetcher, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} });
+      const selected = data?.choices?.[0];
+      return { text: selected?.message?.content, complete: selected?.finish_reason === 'stop',
+        model: data?.model ?? model, usage: chatUsage(data?.usage ?? {}) };
+    },
+  };
+}
+
+export function createServerProvider({ baseURL, defaultModel, username = 'opencode', password, fetcher = fetch } = {}) {
+  const base = endpoint(baseURL);
+  const headers = password ? { authorization: 'Basic ' + Buffer.from(username + ':' + password).toString('base64') } : {};
+  return {
+    label: 'OpenCode Server (v1)', defaultModel,
+    async generate({ system, prompt, model, signal }) {
+      const slash = model?.indexOf('/') ?? -1;
+      if (model && (slash < 1 || slash === model.length - 1)) throw new BloomError('MODEL_INVALID', 'Use provider/model for an OpenCode server.', 400);
+      const options = { headers, signal, fetcher };
+      const session = await post(base + '/session', { title: 'Bloom team turn',
+        permission: [{ permission: '*', pattern: '*', action: 'deny' }] }, options);
+      if (typeof session?.id !== 'string' || !/^ses_[\w-]+$/.test(session.id)) throw new BloomError('PROVIDER_VERSION', 'Expected an OpenCode 1.x session. Check the server URL and API version.');
+      const path = base + '/session/' + encodeURIComponent(session.id);
+      const abort = () => { void fetcher(path + '/abort', { method: 'POST', headers, redirect: 'error', signal: AbortSignal.timeout(2000) }).catch(() => {}); };
+      signal.addEventListener('abort', abort, { once: true });
+      try {
+        if (signal.aborted) { abort(); throw signal.reason; }
+        const selection = model ? { model: { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) } } : {};
+        const reply = await post(path + '/message', { ...selection, system, parts: [{ type: 'text', text: prompt }] }, options);
+        const info = reply?.info ?? {};
+        const t = info.tokens ?? {};
+        const breakdown = [t.input, t.output, t.reasoning, t.cache?.read, t.cache?.write];
+        const total = count(t.total) ?? (breakdown.every(n => count(n) !== null) ? breakdown.reduce((a,b) => a+b,0) : null);
+        return { text: Array.isArray(reply?.parts) ? reply.parts.filter(part => part.type === 'text').map(part => part.text).join('') : null,
+          complete: info.role === 'assistant' && !info.error && info.finish === 'stop',
+          model: info.modelID ? info.providerID + '/' + info.modelID : model,
+          usage: { input: count(t.input), output: count(t.output), total,
+            cacheRead: count(t.cache?.read), cacheWrite: count(t.cache?.write), costUSD: amount(info.cost) } };
+      } finally {
+        signal.removeEventListener('abort', abort);
+      }
+    },
+  };
+}
+
+export const demoProvider = {
+  label: 'Scripted demo', defaultModel: 'demo/scripted',
+  async generate({ phase, agent, brief, documents, signal }) {
+    signal.throwIfAborted();
+    const members = [
+      ['Researcher', 'Findings', 'Extract verifiable claims and cite the supplied sources.', 'research'],
+      ['Reviewer', 'Review', 'Check each finding against its source and flag unsupported claims.', 'review'],
+      ['Assembler', 'Guide', 'Assemble the reviewed findings into a guide.', 'assemble'],
+    ];
+    const sources = documents.map(file => file.title).join(', ') || 'No source attached';
+    const result = phase === 'plan'
+      ? { message: 'I assigned the research, review and assembly for this brief.', agents: members.map(([name, title, charter, stage]) => ({ name, charter, stage, voice: 'Plain and specific.', assignment: title + ' for ' + brief.slice(0, 100) })) }
+      : { message: agent.name + ' saved a scripted example.', title: agent.name + ' · ' + brief.slice(0, 60),
+        document: '# ' + agent.name + '\n\nScripted example for “' + brief + '”.\n\nInputs: ' + sources + '.', verdict: agent.stage === 'review' ? 'approve' : undefined };
+    return { text: JSON.stringify(result), complete: true, model: 'demo/scripted', usage: chatUsage() };
+  },
+};

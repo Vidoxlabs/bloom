@@ -1,0 +1,42 @@
+/* Bloom theme. Generated from the ViDesign properties used by this application. */
+:root {
+  --vi-colors-border-separator-primary-base: #27272A;
+  --vi-colors-status-indicator-error-base: #F43F5E;
+  --vi-colors-status-indicator-warning-base: #F59E0B;
+  --vi-colors-surface-accent-violet-base: #8B5CF6;
+  --vi-colors-surface-background-primary-base: #0A0A0E;
+  --vi-colors-surface-background-secondary-base: #12121A;
+  --vi-colors-surface-background-tertiary-base: #1C1C24;
+  --vi-colors-text-content-primary-base: #FFFFFF;
+  --vi-colors-text-content-secondary-base: #A1A1AA;
+  --vi-effects-glass-crystal-core-base: rgba(10, 10, 14, 0.85);
+  --vi-size-layout-width-inspector-base: 20rem;
+  --vi-size-layout-width-sidebar-base: 16rem;
+  --vi-space-gap-comfortable-default: 0.75rem;
+  --vi-space-gap-compact-default: 0.5rem;
+  --vi-space-gap-dense-default: 0.25rem;
+  --vi-space-gap-spacious-default: 1rem;
+  --vi-space-rhythm-10-base: 2.5rem;
+  --vi-space-rhythm-16-base: 4rem;
+  --vi-space-rhythm-24-base: 6rem;
+  --vi-space-rhythm-3-base: 0.75rem;
+  --vi-space-rhythm-4-base: 1rem;
+  --vi-space-rhythm-5-base: 1.25rem;
+  --vi-space-rhythm-6-base: 1.5rem;
+  --vi-space-rhythm-page-gutter-base: 1.5rem;
+  --vi-spacing-layout-padding-medium-base: 16px;
+  --vi-spacing-layout-padding-small-base: 8px;
+  --vi-spacing-layout-radius-control-base: 10px;
+  --vi-spacing-layout-radius-standard-base: 14px;
+  --vi-typography-typography-family-mono-base: Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace;
+  --vi-typography-typography-family-sans-base: Geist, ui-sans-serif, system-ui, sans-serif;
+  --vi-typography-typography-fluid-h2-base: clamp(1.5rem, 1.25rem + 1vw, 2.5rem);
+  --vi-typography-typography-fluid-h3-base: clamp(1.25rem, 1.1rem + 0.6vw, 2rem);
+  --vi-typography-typography-leading-normal-base: 1.5;
+  --vi-typography-typography-size-2xl-base: 1.5rem;
+  --vi-typography-typography-size-md-base: 1rem;
+  --vi-typography-typography-size-sm-base: 0.875rem;
+  --vi-typography-typography-size-xs-base: 0.75rem;
+  --vi-typography-typography-tracking-tight-base: -0.02em;
+  --vi-typography-typography-weight-semibold-base: 600;
+}

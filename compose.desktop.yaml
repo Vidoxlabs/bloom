@@ -1,0 +1,16 @@
+services:
+  desktop:
+    image: lscr.io/linuxserver/webtop:ubuntu-xfce
+    ports:
+      - "127.0.0.1:4318:3001"
+    environment:
+      PUID: ${BLOOM_DESKTOP_UID:-1000}
+      PGID: ${BLOOM_DESKTOP_GID:-1000}
+    volumes:
+      - desktop-profile:/config
+      - type: bind
+        source: ${BLOOM_DESKTOP_PATH:?Start with npm run desktop}
+        target: /config/Desktop
+    shm_size: 1gb
+volumes:
+  desktop-profile:
