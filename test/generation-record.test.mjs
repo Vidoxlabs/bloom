@@ -82,3 +82,12 @@ test('the seam refuses an adapter that cannot generate, when Bloom starts', () =
 test('without an endpoint, a team call stops with a message that names the flag', async () => {
   await assert.rejects(adoptProvider(unconfiguredProvider).generate(input()), { code: 'PROVIDER_UNCONFIGURED', message: /--api-base/ });
 });
+
+test('package.json pins seed to one full commit, and the installed seed is the release at that commit', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(pkg.dependencies['@vidoxlabs/seed'], /^github:Vidoxlabs\/seed#[0-9a-f]{40}$/);
+  assert.equal(pkg.dependencies['@vidoxlabs/seed'], 'github:Vidoxlabs/seed#57e334ba2c6c8d3f6aafa84d585431af59451192');
+  const { VERSION } = await import('@vidoxlabs/seed');
+  assert.equal(VERSION, '0.6.0');
+});
