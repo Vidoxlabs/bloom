@@ -1,12 +1,14 @@
 export function teamView({ $, node, request, error, state }) {
   let mode = 'source', latest = 0, boundTeam = null;
   const checked = new Set();
+  let fileNames = new Map();
   const usageByActor = new Map();
   const path = (id, suffix = '') => '/api/teams/' + id + suffix;
   function reset() {
     boundTeam = null;
     latest++;
     checked.clear();
+    fileNames.clear();
     usageByActor.clear();
     $('usage').replaceChildren();
     $('recipient').replaceChildren();
@@ -28,13 +30,14 @@ export function teamView({ $, node, request, error, state }) {
   function render(detail) {
     const { team, members, notes, files } = detail;
     const roster = [{ name: team.name, charter: team.charter, stage: 'head' }, ...members];
+    fileNames = new Map(files.map(f => [f.id, f.title]));
     const selected = $('recipient').value;
     $('recipient').replaceChildren(...roster.map(agent => new Option(agent.name, agent.name)));
     if (roster.some(a => a.name === selected)) $('recipient').value = selected;
     $('members').replaceChildren(...roster.map(a => {
       const li = node('li'), fold = node('details');
       const label = node('summary', a.name + ' · ' + a.stage);
-      fold.append(label, node('p', a.charter), ...(a.voice ? [node('p', a.voice, 'hint')] : [])); li.append(fold); return li;
+      fold.append(label, node('p', a.stage === 'head' ? 'VI · Team coordinator' : a.stage === 'verify' ? 'LA · Deterministic verification' : 'OAI · Model-backed specialist', 'hint'), node('p', a.charter), ...(a.voice ? [node('p', a.voice, 'hint')] : [])); li.append(fold); return li;
     }));
     $('files').replaceChildren(...files.map(file => {
       const li = node('li'), wrap = node('label'), check = node('input');
@@ -75,7 +78,12 @@ export function teamView({ $, node, request, error, state }) {
     $('reader-body').textContent = file.text;
     $('reader-lineage').textContent = [file.author, file.source_url, file.parents.length + ' input files', 'SHA-256 ' + file.sha256].filter(Boolean).join(' · ');
     $('download').href = path(id, '/files/' + fileId + '?download');
-    $('reader').showModal();
+    $('reader-parents').replaceChildren(...file.parents.map(parent => {
+      const row = node('li'), button = node('button', fileNames.get(parent) ?? 'Open input file', 'text-button');
+      button.onclick = () => read(parent).catch(e => error(e.message));
+      row.append(button); return row;
+    }));
+    if (!$('reader').open) $('reader').showModal();
   }
   function openEditor(kind) {
     mode = kind;

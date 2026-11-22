@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { digest } from './team-store.mjs';
 import { Teams } from './teams.mjs';
 import { demoProvider } from './models.mjs';
 import { BloomError } from './errors.mjs';
@@ -87,6 +88,13 @@ export class Harness {
     if (typeof text !== 'string' || !text.trim() || text.length > 32_000) {
       throw new BloomError('PROMPT_INVALID', 'Enter a prompt of 1 to 32,000 characters.', 400);
     }
+    let key;
+    if (request.requestId !== undefined) {
+      if (typeof request.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(request.requestId)) throw new BloomError('REQUEST_ID', 'Choose a valid request ID.', 400);
+      key = { id: request.requestId, fingerprint: digest(JSON.stringify([text,model ?? null,request.to ?? null,request.files ?? []])) };
+      const replay = this.store.replay(sessionId,key);
+      if (replay) return { turnId: replay };
+    }
     const session = this.store.getSession(sessionId);
     if (workspacePath(session.workspace) !== session.workspace) {
       throw new BloomError('WORKSPACE_CHANGED', 'The session workspace changed. Create a session for its new location.', 409);
@@ -95,7 +103,8 @@ export class Harness {
     const context = session.adapter === 'team' ? this.teams.input(sessionId, request) : null;
     if (!adapter && !context) throw new BloomError('ADAPTER_UNAVAILABLE', 'The session runtime is unavailable.', 409);
     const selectedModel = model === undefined ? session.model : modelId(model);
-    const { id, events } = this.store.startTurn(sessionId, text, selectedModel);
+    const { id, events, replay } = this.store.startTurn(sessionId, text, selectedModel, key);
+    if (replay) return { turnId: id };
     const state = { id, controller: new AbortController(), permissions: new Map() };
     this.active.set(sessionId, state);
     for (const event of events) this.publish(sessionId, event);

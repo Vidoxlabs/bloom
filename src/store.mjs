@@ -27,6 +27,9 @@ export class Store {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS one_active_turn
         ON turns(session_id) WHERE status = 'running';
+      CREATE TABLE IF NOT EXISTS turn_requests (
+        session_id TEXT NOT NULL REFERENCES sessions(id), request_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL, turn_id TEXT NOT NULL REFERENCES turns(id), PRIMARY KEY(session_id, request_id));
       CREATE TABLE IF NOT EXISTS events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -82,14 +85,25 @@ export class Store {
       .map(({ seq, turn_id: turnId, type, data, at }) => ({ seq, turnId, type, data: JSON.parse(data), at }));
   }
 
-  startTurn(sessionId, prompt, model) {
+  replay(sessionId, key) {
+    if (!key) return null;
+    const old = this.db.prepare('SELECT fingerprint,turn_id FROM turn_requests WHERE session_id=? AND request_id=?').get(sessionId,key.id);
+    if (old && old.fingerprint !== key.fingerprint) throw new BloomError('REQUEST_CONFLICT', 'This request ID already belongs to a different turn.', 409);
+    return old?.turn_id ?? null;
+  }
+
+  startTurn(sessionId, prompt, model, key) {
     return this.transaction(() => {
+      const replay = this.replay(sessionId,key);
+      if (replay) return { id: replay, replay: true, events: [] };
       if (this.db.prepare("SELECT 1 FROM turns WHERE session_id = ? AND status = 'running'").get(sessionId)) {
         throw new BloomError('TURN_ACTIVE', 'This session already has an active turn.', 409);
       }
       const id = randomUUID();
       this.db.prepare("INSERT INTO turns VALUES (?, ?, ?, 'running', ?, NULL)")
         .run(id, sessionId, process.pid, now());
+      if (key) this.db.prepare('INSERT INTO turn_requests VALUES (?,?,?,?)').run(sessionId,key.id,key.fingerprint,id);
+      this.db.prepare("UPDATE sessions SET model=? WHERE id=? AND adapter='team'").run(model,sessionId);
       const heading = prompt.trim().replace(/\s+/g, ' ').slice(0, 72);
       const { title } = this.db.prepare(`
         UPDATE sessions SET title = CASE WHEN title = 'New session' THEN ? ELSE title END, updated_at = ?

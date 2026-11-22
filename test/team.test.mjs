@@ -140,3 +140,15 @@ test('forget during a model call prevents a late reply from being handed off', a
   assert.equal(teams.store.files(a.id).length,0);
   assert.equal(harness.store.eventsAfter(a.id,0).at(-1).data.status,'stopped');
 });
+
+test('duplicate submissions reuse one turn and one budget even after completion', async t => {
+  const { harness, teams, calls } = setup(t);
+  const room = teams.create({});
+  const request = { text:'Make a guide.',requestId:'fixture-request-0001' };
+  const first = harness.start(room.id,request);
+  assert.deepEqual(harness.start(room.id,request),first);
+  await harness.active.get(room.id).task;
+  assert.deepEqual(harness.start(room.id,request),first);
+  assert.equal(calls.length,4);
+  assert.throws(() => harness.start(room.id,{...request,text:'Different brief'}),{code:'REQUEST_CONFLICT'});
+});

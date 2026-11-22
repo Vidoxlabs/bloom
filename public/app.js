@@ -1,6 +1,7 @@
 import { teamView } from './team.js';
 const $ = id => document.getElementById(id);
 const drafts = new Map();
+const pendingSends = new Map();
 const labels = {
   idle: 'Idle', running: 'Running', stopping: 'Stopping', finished: 'Turn ended',
   stopped: 'Stopped', refused: 'Refused', failed: 'Failed', limit: 'Limit reached',
@@ -318,7 +319,13 @@ $('composer').onsubmit = async event => {
   error();
   updateComposer();
   try {
-    await request(sessionEndpoint(sessionId, 'turns'), { text, model: model || undefined, ...(state.session.adapter === 'team' ? team.target() : {}) });
+    const body = { text, model: model || undefined, ...(state.session.adapter === 'team' ? team.target() : {}) };
+    const fingerprint = JSON.stringify(body);
+    const previous = pendingSends.get(sessionId);
+    const requestId = previous?.fingerprint === fingerprint ? previous.requestId : crypto.randomUUID();
+    pendingSends.set(sessionId, { requestId, fingerprint });
+    await request(sessionEndpoint(sessionId, 'turns'), { ...body, requestId });
+    pendingSends.delete(sessionId);
     drafts.delete(sessionId);
     if (state.session.id === sessionId && $('prompt').value === text) $('prompt').value = '';
   } catch (failure) {

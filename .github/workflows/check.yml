@@ -10,20 +10,20 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.13.1'
       - run: npm test
       - run: npm run test:network
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - run: npm install --no-save --package-lock=false playwright@1.55.0
+      - run: npm install --no-save --package-lock=false playwright@1.65.1
       - run: npx playwright install --with-deps chromium
       - run: node --test checks/browser.mjs
       - run: docker compose -f compose.desktop.yaml config -q
@@ -32,9 +32,9 @@ jobs:
   opencode:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - run: npm install --prefix "$RUNNER_TEMP/bloom-runtime" opencode-ai@1.18.30
-      - run: BLOOM_OPENCODE_BIN="$RUNNER_TEMP/bloom-runtime/node_modules/.bin/opencode" node --test checks/opencode.mjs
+      - run: npm install --prefix "$RUNNER_TEMP/bloom-runtime" --ignore-scripts opencode-linux-x64@1.18.30
+      - run: BLOOM_OPENCODE_BIN="$RUNNER_TEMP/bloom-runtime/node_modules/opencode-linux-x64/bin/opencode" node --test checks/opencode.mjs
