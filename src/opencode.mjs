@@ -2,7 +2,7 @@ import { AcpClient } from './acp-client.mjs';
 import { BloomError } from './errors.mjs';
 
 const statuses = new Set(['pending', 'in_progress', 'completed', 'failed']);
-const optionKinds = new Set(['allow_once', 'reject_once']);
+const optionKinds = new Set(['allow_once', 'allow_always', 'reject_once']);
 const cancelled = () => ({ outcome: { outcome: 'cancelled' } });
 const bounded = (value, size) => typeof value === 'string' ? value.slice(0, size) : undefined;
 const array = value => Array.isArray(value) ? value : [];

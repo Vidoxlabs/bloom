@@ -13,15 +13,28 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   const errors = [];
   page.on('pageerror',error => errors.push(error.message));
   await page.goto(host);
+  await page.getByRole('heading',{name:'What should we work on?',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Create a coding session',exact:true}).click();
+  assert.equal(await page.locator('#kind').inputValue(),'direct');
+  assert.equal(await page.locator('#create-session').innerText(),'Create coding session');
+  await page.getByRole('button',{name:'Close',exact:true}).click();
   await page.getByRole('button',{name:'Create a team',exact:true}).click();
-  await page.getByLabel('Head agent name').fill('Desk lead');
+  assert.equal(await page.locator('#kind').inputValue(),'team');
+  for (const [label, hint] of [['Head agent name','Plans the work and creates specialists for it.'],['Jurisdiction','What this agent is responsible for.']]) {
+    assert.equal(await page.getByLabel(label,{exact:true}).evaluate(field => document.getElementById(field.getAttribute('aria-describedby')).textContent),hint);
+  }
+  await page.getByLabel('Head agent name',{exact:true}).fill('Desk lead');
   await page.getByRole('button',{name:'Create team',exact:true}).click();
-  await page.getByRole('button',{name:'Add source'}).click();
+  assert.equal(await page.locator('#session-path').isHidden(),true);
+  await page.getByRole('heading',{name:'Shared desktop',exact:true}).waitFor();
+  await page.getByText('Files every agent on this computer can open and reuse.').waitFor();
+  assert.match(await page.locator('#members summary').first().innerText(),/^Desk lead · Head agent$/);
+  await page.getByRole('button',{name:'Add file',exact:true}).click();
   const sourceTitle = 'Field notebook — observations from the first four greenhouse samples';
   await page.getByLabel('Title',{exact:true}).fill(sourceTitle);
   await page.getByLabel('Or paste text').fill('Four samples were collected.');
   await page.getByRole('button',{name:'Save',exact:true}).click();
-  await page.getByRole('button',{name:'Use research brief'}).click();
+  await page.getByRole('button',{name:'Try a sample task',exact:true}).click();
   await page.getByRole('button',{name:'Send',exact:true}).click();
   await page.getByRole('button',{name:/Open Assembler/}).click();
   await page.locator('#reader[open]').waitFor();
@@ -33,6 +46,7 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.reload();
   await page.getByRole('button',{name:'Open Assembler · Reviewed guide',exact:true}).waitFor();
   assert.match(await page.locator('#usage summary').innerText(), /4\/6 model calls · tokens unreported/);
+  assert.equal(await page.locator('#usage-heading').isVisible(),true);
   await page.evaluate(() => document.fonts.ready);
   assert.equal(await page.evaluate(() => document.fonts.check('16px Geist')),true);
   for (const width of [1440,390]) {

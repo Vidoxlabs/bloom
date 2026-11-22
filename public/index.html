@@ -15,14 +15,17 @@
     <aside class="sessions" aria-label="Workspaces">
       <div class="section-head"><h2>Workspaces</h2><button id="new-session" class="quiet" aria-expanded="false" aria-controls="session-form">+ New</button></div>
       <form id="session-form" class="stack inset" hidden>
-        <label>Workspace type<select id="kind"><option value="team">Agent team</option><option value="direct">Direct coding session</option></select></label>
+        <label>Workspace type<select id="kind"><option value="team">Team</option><option value="direct">Coding session</option></select></label>
         <div id="team-setup" class="stack">
-          <label>Head agent name<input id="head-name" maxlength="40" value="Lead" required></label>
-          <label>Jurisdiction<textarea id="charter" rows="3" maxlength="900" placeholder="What should this head own?"></textarea></label>
-          <details><summary>Model and budget</summary><div class="stack">
-            <label>Model<input id="team-model" maxlength="200" placeholder="Provider default"></label>
-            <label>Model calls per run<input id="call-limit" type="number" min="1" max="20" value="6"></label>
-            <label>Token stop threshold<input id="token-limit" type="number" min="1" max="10000000" placeholder="Optional"></label>
+          <label>Head agent name<input id="head-name" maxlength="40" value="Lead" required aria-describedby="head-name-hint"></label>
+          <p class="hint field-hint" id="head-name-hint">Plans the work and creates specialists for it.</p>
+          <label>Jurisdiction<textarea id="charter" rows="3" maxlength="900" placeholder="What should this head agent be responsible for?" aria-describedby="charter-hint"></textarea></label>
+          <p class="hint field-hint" id="charter-hint">What this agent is responsible for.</p>
+          <details><summary>Model and limits</summary><div class="stack">
+            <label>Model<input id="team-model" maxlength="200" placeholder="Default"></label>
+            <label>Model calls<input id="call-limit" type="number" min="1" max="20" value="6"></label>
+            <label>Token limit<input id="token-limit" type="number" min="1" max="10000000" placeholder="Optional" aria-describedby="token-limit-hint"></label>
+            <p class="hint field-hint" id="token-limit-hint">Stop after this many measured tokens. Leave blank to keep going.</p>
           </div></details>
         </div>
         <label id="direct-setup" hidden>Workspace directory<input id="workspace" placeholder="Blank starts in Scratch" autocomplete="off"></label>
@@ -33,12 +36,12 @@
     <section class="conversation" aria-label="Group conversation">
       <div class="conversation-head"><div class="session-heading"><h1 id="session-title">Workspace</h1><p id="session-path" class="path" hidden></p></div><span id="connection" class="connection" aria-live="polite"></span></div>
       <div class="transcript" id="transcript" role="log" aria-label="Chat history">
-        <div class="empty"><h2>What should your team work on?</h2><p>Give a head agent a brief. Follow the handoffs and open the files your team produces.</p><button id="empty-start" class="primary">Create a team</button></div>
+        <div class="empty"><h2>What should we work on?</h2><p>Give a head agent a brief. Follow the handoffs and open the files your team produces.</p><div class="empty-actions"><button id="empty-start" class="primary">Create a team</button><button id="empty-direct" class="quiet">Create a coding session</button></div></div>
       </div>
       <form class="composer" id="composer" hidden>
-        <div id="recipient-row" class="recipient-row" hidden><label>To <select id="recipient"></select></label><button type="button" class="text-button" id="sample-brief">Use research brief</button></div>
+        <div id="recipient-row" class="recipient-row" hidden><label>To <select id="recipient"></select></label><button type="button" class="text-button" id="sample-brief">Try a sample task</button></div>
         <label class="sr-only" for="prompt">Message</label><textarea id="prompt" maxlength="32000" rows="3" placeholder="Give your team a task" required></textarea>
-        <div class="composer-controls"><div class="model-control"><label for="model">Model</label><input id="model" placeholder="Runtime default" list="models" maxlength="200" autocomplete="off"><datalist id="models"></datalist></div>
+        <div class="composer-controls"><div class="model-control"><label for="model">Model</label><input id="model" placeholder="Default" list="models" maxlength="200" autocomplete="off"><datalist id="models"></datalist></div>
           <button class="quiet" id="stop" type="button" hidden>Stop</button><button id="send" class="primary" type="submit">Send</button></div>
       </form>
       <p id="error" role="alert" class="error" hidden></p>
@@ -46,19 +49,19 @@
     <aside class="activity" aria-label="Inspector">
       <div id="team-inspector" hidden>
         <section><h2>Team</h2><ul id="members" class="list"></ul></section>
-        <section><div class="section-head"><h2>Shared desktop</h2><button class="quiet" id="new-source">Add source</button></div>
-          <p class="hint">Select files to attach to the next message.</p><ul id="files" class="list"></ul>
+        <section><div class="section-head"><h2>Shared desktop</h2><button class="quiet" id="new-source">Add file</button></div>
+          <p class="hint">Files every agent on this computer can open and reuse. Check files to include with the next task.</p><ul id="files" class="list"></ul>
         </section>
-        <section><div class="section-head"><h2>Team memory</h2><button class="quiet" id="new-note">Add note</button></div><ul id="notes" class="list"></ul></section>
+        <section><div class="section-head"><h2>Notes</h2><button class="quiet" id="new-note">Add note</button></div><ul id="notes" class="list"></ul></section>
       </div>
-      <div class="section-head"><h2>Run activity</h2><span id="turn-state" class="turn-state" aria-live="polite">Idle</span></div>
-      <p class="activity-empty" id="activity-empty">Activity appears when a turn starts.</p><div id="usage" aria-live="polite"></div>
+      <div class="section-head"><h2>Activity</h2><span id="turn-state" class="turn-state" aria-live="polite">Idle</span></div>
+      <p class="activity-empty" id="activity-empty">Activity appears when a turn starts.</p><h3 id="usage-heading" class="usage-heading">Usage</h3><div id="usage" aria-live="polite"></div>
       <div id="approvals" aria-label="Pending approvals"></div><ol id="plan" class="plan" aria-label="Agent plan"></ol><ul id="tools" class="tools" aria-label="Tool calls"></ul>
     </aside>
   </main>
-  <dialog id="editor"><form id="editor-form" class="stack"><h2 id="editor-title">Add source</h2>
+  <dialog id="editor"><form id="editor-form" class="stack"><h2 id="editor-title">Add a file</h2>
     <label id="source-name">Title<input id="source-title" maxlength="140"></label>
-    <label id="source-address">Public source URL<input id="source-url" type="url" placeholder="Website or GitHub repository"></label>
+    <label id="source-address">Link<input id="source-url" type="url" placeholder="Website or GitHub repository"></label>
     <label><span id="body-label">Or paste text</span><textarea id="source-body" rows="8" maxlength="16000"></textarea></label>
     <p id="editor-error" class="error" role="alert"></p><div class="form-actions"><button id="editor-close" class="quiet" type="button">Cancel</button><button class="primary" type="submit">Save</button></div>
   </form></dialog>

@@ -28,7 +28,7 @@ The head receives the brief, roster and ordinary desktop file titles. Worker cal
 
 A team provider implements `generate({system, prompt, model, signal, ...})` and returns `{text, complete, model, usage}`. Missing metrics use null. The OpenCode Console adapter uses chat completions; the OpenCode 1.x server adapter creates a session and posts a text message. On that server, input, output, reasoning, cache read and cache write can be separate buckets. Chat completions commonly includes cached reads in its input count. Bloom keeps the provider’s reported total or sums a complete, disjoint OpenCode Server breakdown. It never converts absent usage into a monetary saving. [Console inference API](https://opencode.ai/docs/console/api/inference/)
 
-Stopping or losing a server never implicitly repeats a model call. In-progress team outputs appear only after the model returns a complete structured response. Direct OpenCode sessions use ACP for live text, plan, tool events and one-time approval requests. A tool configured to run automatically in OpenCode follows that local configuration. [OpenCode ACP](https://opencode.ai/docs/cli/acp/)
+Stopping or losing a server never implicitly repeats a model call. In-progress team outputs appear only after the model returns a complete structured response. Direct OpenCode sessions use ACP for live text, plan, tool events and approval requests. Bloom offers **Allow once**, **Reject** and, when OpenCode sends it, **Always allow**, which OpenCode saves as a rule for that project. A tool configured to run automatically in OpenCode follows that local configuration. [OpenCode ACP](https://opencode.ai/docs/cli/acp/)
 
 ## ViDesign continuity
 

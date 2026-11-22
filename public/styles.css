@@ -57,6 +57,10 @@ a { color: inherit; }
 .empty { margin: auto; text-align: center; max-width: 37ch; }
 .empty h2 { font-size: var(--vi-typography-typography-fluid-h2-base); }
 .empty p { color: var(--vi-colors-text-content-secondary-base); margin-block: var(--vi-space-rhythm-3-base) var(--vi-space-rhythm-5-base); }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--vi-space-gap-compact-default); }
+.field-hint { margin-block-start: calc(-1 * var(--vi-space-gap-dense-default)); }
+.usage-heading { font-size: var(--vi-typography-typography-size-sm-base); font-weight: var(--vi-typography-typography-weight-semibold-base); margin: var(--vi-space-gap-compact-default) 0 0; }
+.usage-heading:has(+ #usage:empty) { display: none; }
 .message { max-width: min(73ch,100%); overflow-wrap: anywhere; }
 .message p, pre { white-space: pre-wrap; }
 .message header { font-size: var(--vi-typography-typography-size-sm-base); font-weight: var(--vi-typography-typography-weight-semibold-base); margin-bottom: var(--vi-space-gap-dense-default); }

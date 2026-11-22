@@ -3,6 +3,7 @@ export function teamView({ $, node, request, error, state }) {
   const checked = new Set();
   let fileNames = new Map();
   const usageByActor = new Map();
+  const stageNames = { head: 'Head agent', research: 'Research', review: 'Review', assemble: 'Assemble', work: 'Work', verify: 'Check' };
   const path = (id, suffix = '') => '/api/teams/' + id + suffix;
   function reset() {
     boundTeam = null;
@@ -24,7 +25,7 @@ export function teamView({ $, node, request, error, state }) {
     const team = $('kind').value === 'team';
     $('team-setup').hidden = !team;
     $('direct-setup').hidden = team;
-    $('create-session').textContent = team ? 'Create team' : 'Create session';
+    $('create-session').textContent = team ? 'Create team' : 'Create coding session';
     $('head-name').required = team;
   }
   function render(detail) {
@@ -36,7 +37,7 @@ export function teamView({ $, node, request, error, state }) {
     if (roster.some(a => a.name === selected)) $('recipient').value = selected;
     $('members').replaceChildren(...roster.map(a => {
       const li = node('li'), fold = node('details');
-      const label = node('summary', a.name + ' · ' + a.stage);
+      const label = node('summary', a.name + ' · ' + (stageNames[a.stage] ?? a.stage));
       fold.append(label, node('p', a.stage === 'head' ? 'VI · Team coordinator' : a.stage === 'verify' ? 'LA · Deterministic verification' : 'OAI · Model-backed specialist', 'hint'), node('p', a.charter), ...(a.voice ? [node('p', a.voice, 'hint')] : [])); li.append(fold); return li;
     }));
     $('files').replaceChildren(...files.map(file => {
@@ -89,7 +90,7 @@ export function teamView({ $, node, request, error, state }) {
     mode = kind;
     const source = kind === 'source';
     $('editor-form').reset();
-    $('editor-title').textContent = source ? 'Add a shared source' : 'Save a team note';
+    $('editor-title').textContent = source ? 'Add a file' : 'Save a team note';
     $('source-name').hidden = $('source-address').hidden = !source;
     $('source-title').required = source;
     $('body-label').textContent = source ? 'Or paste text' : 'What should this team remember?';
@@ -130,7 +131,7 @@ export function teamView({ $, node, request, error, state }) {
       const li = node('li', data.actor + ' · ' + (data.phase === 'plan' ? 'Planning' : 'Working'));
       $('plan').append(li);
     }
-    if (type === 'team.recall') $('tools').append(node('li', data.actor + ' · memory ' + (data.hit ? 'cache hit' : 'read') + ' · ' + data.count + ' notes'));
+    if (type === 'team.recall') $('tools').append(node('li', data.actor + ' · notes ' + (data.hit ? 'reused' : 'loaded') + ' · ' + data.count + ' notes'));
     if (type === 'team.usage') {
       const u = data.usage;
       const line = data.actor + ' · ' + (data.model || 'Default model') + ' · input ' + display(u.input) + ' · output ' + display(u.output) + ' · cache read ' + display(u.cacheRead) + ' · write ' + display(u.cacheWrite) + ' · USD ' + (u.costUSD == null ? 'unreported' : String(u.costUSD));

@@ -104,13 +104,14 @@ function selectSession(session) {
   state.messages.clear();
   clearActivity();
   $('transcript').replaceChildren();
-  const waiting = node('p', session.adapter === 'team' ? 'Give the head agent a brief. Attach sources from the shared desktop when the team needs evidence.' : 'Start a turn in this workspace.', 'empty');
+  const waiting = node('p', session.adapter === 'team' ? 'Give the head agent a task. Check the shared desktop when the team needs evidence.' : 'Start a turn in this workspace.', 'empty');
   waiting.id = 'conversation-placeholder';
   $('transcript').append(waiting);
   $('session-title').textContent = session.title;
-  $('session-path').textContent = session.workspace;
-  $('session-path').title = session.workspace;
-  $('session-path').hidden = false;
+  const showPath = session.adapter !== 'team';
+  $('session-path').textContent = showPath ? session.workspace : '';
+  $('session-path').title = showPath ? session.workspace : '';
+  $('session-path').hidden = !showPath;
   $('model').value = session.model ?? '';
   $('models').replaceChildren();
   $('prompt').value = drafts.get(session.id) ?? '';
@@ -222,7 +223,7 @@ function renderApproval({ id, title, options }) {
 function resolveApproval(id, kind) {
   const item = state.approvals.get(id);
   if (!item) return;
-  const label = { allow_once: 'Allowed once', reject_once: 'Declined', cancelled: 'Request closed' }[kind];
+  const label = { allow_once: 'Allowed once', allow_always: 'Allowed always', reject_once: 'Declined', cancelled: 'Request closed' }[kind];
   item.card.querySelector('strong').textContent = label;
   item.card.querySelector('.form-actions')?.remove();
   state.approvals.delete(id);
@@ -291,7 +292,8 @@ function apply({ turnId, type, data }) {
 
 $('new-session').onclick = () => showForm($('session-form').hidden);
 $('dismiss-session').onclick = () => showForm(false);
-$('empty-start').onclick = () => showForm(true);
+$('empty-start').onclick = () => { $('kind').value = 'team'; showForm(true); };
+$('empty-direct').onclick = () => { $('kind').value = 'direct'; showForm(true); };
 $('session-form').onsubmit = async event => {
   event.preventDefault();
   const button = event.currentTarget.querySelector('[type=submit]');

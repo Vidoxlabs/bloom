@@ -71,10 +71,12 @@ test('streams ACP plan and tools, binds approval to one pending request, and per
   assert.equal(during.some(event => event.type === 'turn.finished'), false);
   assert.equal(during.filter(event => event.type === 'permission.requested').length, 1);
   assert.equal(request.toolId, 'read-1');
-  assert.deepEqual(request.options.map(option => option.id), ['yes', 'no']);
+  assert.deepEqual(request.options.map(option => [option.id, option.kind, option.label]), [
+    ['yes', 'allow_once', 'Allow once'], ['no', 'reject_once', 'Reject'], ['always', 'allow_always', 'Always allow'],
+  ]);
   assert.throws(() => harness.start(session.id, { text: 'Try again' }), { code: 'TURN_ACTIVE' });
   assert.throws(() => harness.decide(other.id, request.id, { optionId: 'yes' }), { code: 'PERMISSION_SETTLED' });
-  assert.throws(() => harness.decide(session.id, request.id, { optionId: 'always' }), { code: 'PERMISSION_UNKNOWN' });
+  assert.throws(() => harness.decide(session.id, request.id, { optionId: 'sometimes' }), { code: 'PERMISSION_UNKNOWN' });
 
   const done = eventual(harness, session.id, 'turn.finished');
   assert.deepEqual(harness.decide(session.id, request.id, { optionId: 'yes' }), { accepted: true });
