@@ -8,7 +8,7 @@ Give a head agent a brief and watch a team work through it in one group conversa
 
 ## Try it
 
-Download the source from GitHub and extract it, or clone this repository. Install Node.js 22.13 or newer and run this command from the project folder in a terminal on macOS, Linux, or Windows. The app has no npm runtime dependencies.
+Download `bloom-VERSION.zip` from the [latest release](https://github.com/Vidoxlabs/bloom/releases/latest) and extract it, or clone this repository. Install Node.js 22.13 or newer and run this command from the project folder in a terminal on macOS, Linux, or Windows. The app has no npm runtime dependencies.
 
 ```sh
 npm run demo
