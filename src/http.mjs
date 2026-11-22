@@ -109,7 +109,7 @@ export function createHandler(harness) {
             response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': 'attachment; filename="' + file.filename + '"' });
             return response.end(file.text);
           }
-          return json(response, 200, file);
+          return json(response, 200, { ...file, history: harness.teams.store.history(id, item) });
         }
       }
       if (pathname === '/api/sessions') {

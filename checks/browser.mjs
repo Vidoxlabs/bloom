@@ -76,5 +76,20 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
       await page.screenshot({path:join(process.env.BLOOM_UI_EVIDENCE,'team-'+width+'.png'),fullPage:true});
     }
   }
+  await page.setViewportSize({width:1440,height:900});
+  assert.deepEqual(await page.locator('#files .folder').allInnerTexts(), ['Guides','Research']);
+  await page.locator('#files li', {hasText:'Assembler · Reviewed guide'}).getByRole('checkbox').check();
+  await page.getByLabel('Message').fill('Tighten the guide.');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await page.getByText('I revised the guide; the earlier version stays in its history.').waitFor();
+  const revisedRow = page.locator('#files li', {hasText:'Assembler · Reviewed guide'});
+  assert.equal(await revisedRow.count(), 1, 'the desktop lists only the newest revision');
+  assert.match(await revisedRow.innerText(), /v2/);
+  await revisedRow.getByRole('button',{name:'Open',exact:true}).click();
+  await page.locator('#reader[open]').waitFor();
+  assert.match(await page.locator('#reader-lineage').innerText(), /Guides · Revision 2/);
+  await page.getByRole('button',{name:/^Revision 1 · Assembler · Reviewed guide/}).click();
+  await page.locator('#reader-lineage').filter({hasText:'Guides · Revision 1'}).waitFor();
+  if (process.env.BLOOM_UI_EVIDENCE) await page.screenshot({path:join(process.env.BLOOM_UI_EVIDENCE,'revision-history.png')});
   assert.deepEqual(errors,[]);
 });

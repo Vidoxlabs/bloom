@@ -85,9 +85,9 @@ export function createServerProvider({ baseURL, defaultModel, username = 'openco
 }
 
 const demoTeam = [
-  { name: 'Researcher', stage: 'research', title: 'Source findings', charter: 'Extract claims and cite the supplied sources.', message: 'The source findings are ready for review.' },
-  { name: 'Reviewer', stage: 'review', title: 'Evidence review', charter: 'Check each finding against its source and flag gaps.', message: 'The evidence review is ready for the assembler.' },
-  { name: 'Assembler', stage: 'assemble', title: 'Reviewed guide', charter: 'Turn the reviewed findings into a guide.', message: 'The guide is ready to open.' },
+  { name: 'Researcher', stage: 'research', title: 'Source findings', folder: 'Research', charter: 'Extract claims and cite the supplied sources.', message: 'The source findings are ready for review.' },
+  { name: 'Reviewer', stage: 'review', title: 'Evidence review', folder: 'Research', charter: 'Check each finding against its source and flag gaps.', message: 'The evidence review is ready for the assembler.' },
+  { name: 'Assembler', stage: 'assemble', title: 'Reviewed guide', folder: 'Guides', charter: 'Turn the reviewed findings into a guide.', message: 'The guide is ready to open.' },
 ];
 
 export const demoProvider = {
@@ -104,9 +104,11 @@ export const demoProvider = {
       const title = role?.title ?? 'Work notes';
       const sources = documents.map(file => '- ' + file.title).join('\n') || 'No sources attached.';
       const briefText = brief.length > 2000 ? brief.slice(0, 2000).trimEnd() + '…' : brief;
-      result = { title: agent.name + ' · ' + title, message: role?.message ?? 'The work notes are ready.',
+      // The scripted assembler revises its earlier guide when that guide is supplied again.
+      const previous = documents.find(file => file.title === agent.name + ' · ' + title && agent.stage === 'assemble');
+      result = { title: agent.name + ' · ' + title, message: previous ? 'I revised the guide; the earlier version stays in its history.' : role?.message ?? 'The work notes are ready.',
         document: '# ' + title + '\n\nScripted example for this brief.\n\n' + briefText + '\n\n## Inputs\n\n' + sources,
-        verdict: agent.stage === 'review' ? 'approve' : undefined };
+        verdict: agent.stage === 'review' ? 'approve' : undefined, folder: role?.folder, revises: previous?.id };
     }
     return { text: JSON.stringify(result), complete: true, model: 'demo/scripted', usage: chatUsage() };
   },

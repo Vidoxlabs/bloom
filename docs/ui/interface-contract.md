@@ -181,6 +181,15 @@ Quoted from the review, which records the lines already in the checkout. The tea
 
 **Roster hint lines.** The member row already shows one hint line: `VI · Team coordinator` for the head agent, `LA · Deterministic verification` for `verify`, and `OAI · Model-backed specialist` for the other stages, plus the voice when a specialist has one. Those are labels on the member row. They are not separate products, and they are not screens.
 
+## 6a. Desktop revisions and folders (added with agent desktop changes)
+
+- Files sit under their folder name, shown as a muted heading in the `Shared desktop` list. Files without a folder come first, with no heading.
+- A file with more than one revision shows ` · v{n}` after its title. Only the newest revision of each file is listed.
+- The reader's detail line adds the folder and `Revision {n}` when the file has other revisions.
+- Under the label `Other revisions`, the reader lists each other revision as `Revision {n} · {title} · {author}`. Choosing one opens it.
+- A rename or move shows in `Activity` as `Rename {old title}` or `File {old title}`.
+- The demo files research under `Research` and guides under `Guides`. When the guide is supplied again, the demo assembler revises it and posts `I revised the guide; the earlier version stays in its history.`
+
 ## 7. Leave out
 
 - The section 6 request to name the team expanded field `cache write`. The word on that line is `write`.

@@ -40,18 +40,29 @@ export function teamView({ $, node, request, error, state }) {
       const label = node('summary', a.name + ' · ' + (stageNames[a.stage] ?? a.stage));
       fold.append(label, node('p', a.stage === 'head' ? 'VI · Team coordinator' : a.stage === 'verify' ? 'LA · Deterministic verification' : 'OAI · Model-backed specialist', 'hint'), node('p', a.charter), ...(a.voice ? [node('p', a.voice, 'hint')] : [])); li.append(fold); return li;
     }));
-    $('files').replaceChildren(...files.map(file => {
+    // Group the newest revision of each file under its folder; top-level files come first.
+    const grouped = [...files].sort((x, y) => (x.folder ?? '').localeCompare(y.folder ?? ''));
+    let folder;
+    $('files').replaceChildren(...grouped.flatMap(file => {
+      const rows = [];
+      if ((file.folder ?? null) !== folder) {
+        folder = file.folder ?? null;
+        if (folder) rows.push(node('li', folder, 'folder'));
+      }
       const li = node('li'), wrap = node('label'), check = node('input');
+      if (file.folder) li.className = 'in-folder';
       check.type = 'checkbox'; check.checked = checked.has(file.id);
       check.onchange = () => {
         if (!check.checked) checked.delete(file.id);
         else if (checked.size < 6) checked.add(file.id);
         else { check.checked = false; error('Attach up to six files at a time.'); }
       };
-      wrap.append(check, document.createTextNode(file.title));
+      const name = node('span', file.title);
+      if (file.revision > 1) name.append(node('span', ' · v' + file.revision, 'revision'));
+      wrap.append(check, name);
       const open = node('button', 'Open', 'text-button');
       open.onclick = () => read(file.id).catch(e => error(e.message));
-      li.append(wrap, open); return li;
+      li.append(wrap, open); rows.push(li); return rows;
     }));
     $('notes').replaceChildren(...notes.map(note => {
       const li = node('li', note.text), forget = node('button', 'Forget', 'text-button');
@@ -77,7 +88,15 @@ export function teamView({ $, node, request, error, state }) {
     if (state.session.id !== id) return;
     $('reader-title').textContent = file.title;
     $('reader-body').textContent = file.text;
-    $('reader-lineage').textContent = [file.author, file.source_url, file.parents.length + ' input files', 'SHA-256 ' + file.sha256].filter(Boolean).join(' · ');
+    $('reader-lineage').textContent = [file.author, file.folder, (file.history?.length ?? 0) > 1 ? 'Revision ' + file.revision : null, file.source_url,
+      file.parents.length + ' input files', 'SHA-256 ' + file.sha256].filter(Boolean).join(' · ');
+    const others = (file.history ?? []).filter(entry => entry.id !== file.id);
+    $('reader-history-label').hidden = !others.length;
+    $('reader-history').replaceChildren(...others.map(entry => {
+      const row = node('li'), button = node('button', 'Revision ' + entry.revision + ' · ' + entry.title + ' · ' + entry.author, 'text-button');
+      button.onclick = () => read(entry.id).catch(e => error(e.message));
+      row.append(button); return row;
+    }));
     $('download').href = path(id, '/files/' + fileId + '?download');
     $('reader-parents').replaceChildren(...file.parents.map(parent => {
       const row = node('li'), button = node('button', fileNames.get(parent) ?? 'Open input file', 'text-button');

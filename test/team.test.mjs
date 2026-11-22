@@ -152,3 +152,55 @@ test('duplicate submissions reuse one turn and one budget even after completion'
   assert.equal(calls.length,4);
   assert.throws(() => harness.start(room.id,{...request,text:'Different brief'}),{code:'REQUEST_CONFLICT'});
 });
+
+test('specialists revise, rename and file supplied desktop files as hash-linked revisions', async t => {
+  let script = null;
+  const { teams, harness } = setup(t, async input => {
+    if (!script || (input.phase === 'plan' && !script.plan)) return demoProvider.generate(input);
+    const result = input.phase === 'plan' ? script.plan : script.work(input);
+    return { text: JSON.stringify(result), complete: true, model: 'fixture', usage: {} };
+  });
+  const a = teams.create({ name: 'Desk lead' }), b = teams.create({ name: 'Other head' });
+  const source = await teams.source(a.id, { title: 'Project notes', text: 'The baseline is 13 units.' });
+
+  const first = await run(harness, a.id, { files: [source.id] });
+  const guide = first.posts[3].file;
+  assert.equal(guide.folder, 'Guides');
+  assert.equal(first.posts[1].file.folder, 'Research');
+
+  const second = await run(harness, a.id, { files: [guide.id] });
+  const revised = second.posts.at(-1).file;
+  assert.equal(second.outcome.status, 'finished');
+  assert.deepEqual([revised.root, revised.revision, revised.folder], [guide.id, 2, 'Guides']);
+  assert.equal(teams.store.read(b.id, revised.id).parents[0], guide.id);
+  for (const id of [a.id, b.id]) {
+    const listed = teams.detail(id).files.filter(f => f.root === guide.id);
+    assert.deepEqual(listed.map(f => [f.id, f.revision]), [[revised.id, 2]]);
+  }
+  assert.deepEqual(teams.store.history(b.id, guide.id).map(f => [f.id, f.revision]), [[guide.id, 1], [revised.id, 2]]);
+  assert.equal(teams.store.read(a.id, guide.id).revision, 1, 'earlier revisions stay readable');
+
+  const plan = { message: 'Filing the desktop.', agents: [{ name: 'Organizer', stage: 'work', charter: 'Keep the desktop tidy.', voice: 'Brief.', assignment: 'File the notes.' }], readFiles: [source.id] };
+  const organized = (extra) => ({ message: 'Filed.', title: 'Filing log', document: 'Moved the notes.', ...extra });
+  script = { plan, work: () => organized({ moves: [{ file: source.id, folder: 'Sources/Client', title: 'Client notes' }] }) };
+  const third = await run(harness, a.id, {});
+  assert.equal(third.outcome.status, 'finished');
+  const moved = teams.detail(b.id).files.find(f => f.root === source.id);
+  assert.deepEqual([moved.title, moved.folder, moved.revision, moved.sha256], ['Client notes', 'Sources/Client', 2, source.sha256]);
+  assert.ok(third.events.some(e => e.type === 'tool.updated' && e.data.title === 'Rename Project notes' && e.data.status === 'completed'));
+
+  for (const bad of [{ revises: '00000000-0000-4000-8000-000000000000' }, { folder: '../outside' }, { moves: [{ file: source.id }] }, { moves: [{ file: guide.id, folder: 'X' }] }]) {
+    script = { plan: { ...plan, readFiles: [moved.id] }, work: () => organized(bad) };
+    assert.equal((await run(harness, a.id, {})).outcome.code, 'TEAM_PROTOCOL', JSON.stringify(bad));
+  }
+
+  const note = teams.note(a.id, { text: 'private-canary' });
+  script = { plan: { ...plan, readFiles: [revised.id] }, work: () => organized({ title: 'Private guide', revises: revised.id }) };
+  const fourth = await run(harness, a.id, {});
+  const scoped = fourth.posts.at(-1).file;
+  assert.equal(scoped.revision, 3);
+  assert.equal(teams.detail(a.id).files.find(f => f.root === guide.id).id, scoped.id);
+  assert.equal(teams.detail(b.id).files.find(f => f.root === guide.id).id, revised.id, 'other teams keep the shareable revision');
+  teams.forget(a.id, note.id);
+  assert.equal(teams.detail(a.id).files.find(f => f.root === guide.id).id, revised.id, 'Forget withdraws the note-derived revision');
+});

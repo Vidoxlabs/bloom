@@ -61,6 +61,9 @@ a { color: inherit; }
 .field-hint { margin-block-start: calc(-1 * var(--vi-space-gap-dense-default)); }
 .usage-heading { font-size: var(--vi-typography-typography-size-sm-base); font-weight: var(--vi-typography-typography-weight-semibold-base); margin: var(--vi-space-gap-compact-default) 0 0; }
 .usage-heading:has(+ #usage:empty) { display: none; }
+#files .folder { color: var(--vi-colors-text-content-secondary-base); font-weight: var(--vi-typography-typography-weight-semibold-base); padding-block-start: var(--vi-space-gap-dense-default); }
+#files .in-folder { padding-inline-start: var(--vi-space-gap-compact-default); }
+#files .revision { color: var(--vi-colors-text-content-secondary-base); }
 .message { max-width: min(73ch,100%); overflow-wrap: anywhere; }
 .message p, pre { white-space: pre-wrap; }
 .message header { font-size: var(--vi-typography-typography-size-sm-base); font-weight: var(--vi-typography-typography-weight-semibold-base); margin-bottom: var(--vi-space-gap-dense-default); }

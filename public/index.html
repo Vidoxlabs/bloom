@@ -65,7 +65,8 @@
     <label><span id="body-label">Or paste text</span><textarea id="source-body" rows="8" maxlength="16000"></textarea></label>
     <p id="editor-error" class="error" role="alert"></p><div class="form-actions"><button id="editor-close" class="quiet" type="button">Cancel</button><button class="primary" type="submit">Save</button></div>
   </form></dialog>
-  <dialog id="reader"><div class="stack"><h2 id="reader-title"></h2><p id="reader-lineage" class="hint"></p><ul id="reader-parents" class="list"></ul><pre id="reader-body"></pre>
+  <dialog id="reader"><div class="stack"><h2 id="reader-title"></h2><p id="reader-lineage" class="hint"></p><ul id="reader-parents" class="list"></ul>
+    <p id="reader-history-label" class="hint" hidden>Other revisions</p><ul id="reader-history" class="list" aria-labelledby="reader-history-label"></ul><pre id="reader-body"></pre>
     <div class="form-actions"><a id="download" class="primary" download>Download Markdown</a><button id="reader-close" class="quiet">Close</button></div></div></dialog>
 </body>
 </html>

@@ -4,7 +4,18 @@ import { join } from 'node:path';
 import { BloomError } from './errors.mjs';
 
 export const digest = text => createHash('sha256').update(text).digest('hex');
-const fields = 'id, title, author, sha256, created_at, filename';
+const fields = 'id, title, author, sha256, created_at, filename, folder, COALESCE(root, id) AS root, COALESCE(revision, 1) AS revision';
+const visible = alias => `(${alias}.private_epoch IS NULL OR (${alias}.team=? AND ${alias}.private_epoch=?))`;
+const segment = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,39}$/u;
+export function folderOf(value) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') throw new BloomError('FOLDER_INVALID', 'Use a folder name such as Research or Research/Sources.', 400);
+  const parts = value.trim().split('/').map(part => part.trim());
+  if (value.trim().length > 80 || parts.length > 3 || parts.some(part => !segment.test(part) || part === '.' || part === '..')) {
+    throw new BloomError('FOLDER_INVALID', 'Use up to three folder names of letters, numbers, spaces, dots, hyphens or underscores.', 400);
+  }
+  return parts.join('/');
+}
 const unavailable = () => new BloomError('FILE_UNAVAILABLE', 'This file is unavailable to the team.', 404);
 
 export class TeamStore {
@@ -33,6 +44,10 @@ export class TeamStore {
         child TEXT NOT NULL REFERENCES desktop_files, parent TEXT NOT NULL REFERENCES desktop_files,
         PRIMARY KEY(child,parent));
     `);
+    const columns = new Set(this.db.prepare('PRAGMA table_info(desktop_files)').all().map(column => column.name));
+    for (const [name, type] of [['root', 'TEXT'], ['revision', 'INTEGER'], ['folder', 'TEXT']]) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE desktop_files ADD COLUMN ${name} ${type}`);
+    }
   }
 
   team(id) { return this.db.prepare('SELECT * FROM teams WHERE id=?').get(id); }
@@ -80,8 +95,17 @@ export class TeamStore {
   }
   files(id) {
     const team = this.require(id);
-    return this.db.prepare(`SELECT ${fields},source_url,(private_epoch IS NULL) AS shareable FROM desktop_files WHERE private_epoch IS NULL
-      OR (team=? AND private_epoch=?) ORDER BY rowid DESC LIMIT 100`).all(id, team.epoch);
+    // One row per revision chain: the newest revision this team may see.
+    return this.db.prepare(`SELECT ${fields},source_url,(private_epoch IS NULL) AS shareable FROM desktop_files f WHERE ${visible('f')}
+      AND NOT EXISTS (SELECT 1 FROM desktop_files g WHERE COALESCE(g.root, g.id)=COALESCE(f.root, f.id)
+        AND COALESCE(g.revision, 1)>COALESCE(f.revision, 1) AND ${visible('g')})
+      ORDER BY f.rowid DESC LIMIT 100`).all(id, team.epoch, id, team.epoch);
+  }
+  history(id, fileId) {
+    const team = this.require(id);
+    return this.db.prepare(`SELECT id, title, author, created_at, folder, COALESCE(revision, 1) AS revision FROM desktop_files f
+      WHERE COALESCE(f.root, f.id)=(SELECT COALESCE(root, id) FROM desktop_files WHERE id=?) AND ${visible('f')}
+      ORDER BY COALESCE(f.revision, 1)`).all(fileId, id, team.epoch);
   }
   read(id, fileId) {
     const team = this.require(id);
@@ -98,25 +122,38 @@ export class TeamStore {
     finally { if (fd !== undefined) closeSync(fd); }
     if (digest(text) !== file.sha256) throw new BloomError('FILE_CHANGED', 'The desktop copy changed. Import the edited text as a new version.', 409);
     const parents = this.db.prepare('SELECT parent FROM file_links WHERE child=? ORDER BY rowid').all(file.id).map(x => x.parent);
-    return { ...file, text, parents };
+    return { ...file, root: file.root ?? file.id, revision: file.revision ?? 1, text, parents };
   }
-  write(id, { title, author, text, parents = [], privateEpoch = null, sourceUrl = null }) {
+  write(id, { title, author, text, parents = [], privateEpoch = null, sourceUrl = null, revises = null, folder }) {
     const team = this.require(id);
+    let root = null, revision = 1;
+    if (revises) {
+      const previous = this.read(id, revises);
+      root = previous.root;
+      revision = this.db.prepare('SELECT MAX(COALESCE(revision, 1)) AS n FROM desktop_files WHERE COALESCE(root, id)=?').get(root).n + 1;
+      title ??= previous.title;
+      if (folder === undefined) folder = previous.folder;
+      sourceUrl ??= previous.source_url;
+      parents = [revises, ...parents.filter(parent => parent !== revises)];
+    }
+    folder = folderOf(folder);
     const inputs = parents.map(parent => this.read(id, parent));
     if (inputs.some(input => input.private_epoch !== null)) privateEpoch = team.epoch;
     if (privateEpoch !== null && privateEpoch !== team.epoch) throw unavailable();
     const fileId = randomUUID();
     const slug = title.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'Document';
     const filename = slug + '-' + fileId + '.md';
-    const file = { id: fileId, title, author, filename, sha256: digest(text), created_at: new Date().toISOString() };
+    root ??= fileId;
+    const file = { id: fileId, title, author, filename, sha256: digest(text), created_at: new Date().toISOString(), folder, root, revision };
     const target = join(this.desktop, filename);
     const temp = target + '.tmp';
     try {
       writeFileSync(temp, text, { flag: 'wx', mode: 0o600 });
       renameSync(temp, target);
       this.store.transaction(() => {
-        this.db.prepare('INSERT INTO desktop_files VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(fileId, title, author, id, privateEpoch, file.sha256, filename, file.created_at, sourceUrl);
+        this.db.prepare(`INSERT INTO desktop_files (id,title,author,team,private_epoch,sha256,filename,created_at,source_url,root,revision,folder)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(fileId, title, author, id, privateEpoch, file.sha256, filename, file.created_at, sourceUrl, root, revision, folder);
         const edge = this.db.prepare('INSERT INTO file_links VALUES (?,?)');
         for (const parent of new Set(parents)) edge.run(fileId, parent);
       });
