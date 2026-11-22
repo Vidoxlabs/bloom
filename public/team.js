@@ -1,5 +1,5 @@
 export function teamView({ $, node, request, error, state }) {
-  let mode = 'source', latest = 0, boundTeam = null;
+  let mode = 'source', latest = 0, boundTeam = null, correcting = null;
   const checked = new Set();
   let fileNames = new Map(), personas = [], editing = null;
   const usageByActor = new Map();
@@ -16,6 +16,8 @@ export function teamView({ $, node, request, error, state }) {
     $('members').replaceChildren();
     $('files').replaceChildren();
     $('notes').replaceChildren();
+    $('suggestions').replaceChildren();
+    $('suggestions-heading').hidden = $('suggestions-hint').hidden = true;
     const active = state.session?.adapter === 'team';
     $('team-inspector').hidden = !active;
     $('recipient-row').hidden = !active;
@@ -61,7 +63,7 @@ export function teamView({ $, node, request, error, state }) {
     $('head-name').required = team;
   }
   function render(detail) {
-    const { team, members, notes, files } = detail;
+    const { team, members, notes, proposals = [], files } = detail;
     const roster = [{ name: team.name, charter: team.charter, stage: 'head' }, ...members];
     fileNames = new Map(files.map(f => [f.id, f.title]));
     const selected = $('recipient').value;
@@ -103,13 +105,35 @@ export function teamView({ $, node, request, error, state }) {
       li.append(wrap, open); rows.push(li); return rows;
     }));
     $('notes').replaceChildren(...notes.map(note => {
-      const li = node('li', note.text), forget = node('button', 'Forget', 'text-button');
+      const li = node('li'), body = node('div', null, 'note-body'), actions = node('span', null, 'note-actions');
+      const details = [note.kind === 'rule' ? 'Always used' : 'Used when relevant', note.shared ? 'Shared with every team' : null,
+        note.source !== 'owner' ? 'Suggested by ' + note.source : null, note.supersedes ? 'Corrected' : null,
+        note.uses ? 'Used ' + note.uses + (note.uses === 1 ? ' time' : ' times') : null].filter(Boolean).join(' · ');
+      body.append(node('span', note.text), node('span', details, 'hint'));
+      const correct = node('button', 'Correct', 'text-button'), forget = node('button', 'Forget', 'text-button');
+      correct.onclick = () => openEditor('correct', note);
       forget.onclick = async () => {
         const id = state.session.id;
         try { await request(path(id, '/notes/' + note.id), {}, 'DELETE'); await refresh(); }
         catch (e) { error(e.message); }
       };
-      li.append(forget); return li;
+      actions.append(correct, forget); li.append(body, actions); return li;
+    }));
+    $('suggestions-heading').hidden = $('suggestions-hint').hidden = !proposals.length;
+    $('suggestions').replaceChildren(...proposals.map(proposal => {
+      const li = node('li'), body = node('div', null, 'note-body'), actions = node('span', null, 'note-actions');
+      body.append(node('span', proposal.text), node('span', proposal.source, 'hint'));
+      for (const [label, method] of [['Keep', 'POST'], ['Dismiss', 'DELETE']]) {
+        const button = node('button', label, 'text-button');
+        button.setAttribute('aria-label', label + ' suggestion: ' + proposal.text);
+        button.onclick = async () => {
+          const id = state.session.id;
+          try { await request(path(id, '/suggestions/' + proposal.id), {}, method); await refresh(); }
+          catch (e) { error(e.message); }
+        };
+        actions.append(button);
+      }
+      li.append(body, actions); return li;
     }));
   }
   async function refresh() {
@@ -143,15 +167,18 @@ export function teamView({ $, node, request, error, state }) {
     }));
     if (!$('reader').open) $('reader').showModal();
   }
-  function openEditor(kind) {
+  function openEditor(kind, note = null) {
     mode = kind;
+    correcting = note;
     const source = kind === 'source';
     $('editor-form').reset();
-    $('editor-title').textContent = source ? 'Add a file' : 'Save a team note';
+    $('editor-title').textContent = source ? 'Add a file' : note ? 'Correct a note' : 'Save a team note';
     $('source-name').hidden = $('source-address').hidden = !source;
+    $('note-options').hidden = kind !== 'note';
     $('source-title').required = source;
-    $('body-label').textContent = source ? 'Or paste text' : 'What should this team remember?';
+    $('body-label').textContent = source ? 'Or paste text' : note ? 'What should the team remember instead?' : 'What should this team remember?';
     $('source-body').maxLength = source ? 16000 : 800;
+    if (note) $('source-body').value = note.text;
     $('editor-error').textContent = '';
     $('editor').showModal();
   }
@@ -164,7 +191,8 @@ export function teamView({ $, node, request, error, state }) {
       if (mode === 'source') {
         const file = await request(path(id, '/sources'), { title: $('source-title').value, text, url: $('source-url').value.trim() });
         if (state.session?.id === id && checked.size < 6) checked.add(file.id);
-      } else await request(path(id, '/notes'), { text });
+      } else if (mode === 'correct') await request(path(id, '/notes/' + correcting.id), { text }, 'PUT');
+      else await request(path(id, '/notes'), { text, kind: $('note-always').checked ? 'rule' : 'fact', shared: $('note-shared').checked });
       $('editor').close();
       await refresh();
     } catch (e) { $('editor-error').textContent = e.message; }
@@ -204,10 +232,17 @@ export function teamView({ $, node, request, error, state }) {
     if (!type.startsWith('team.')) return;
     $('activity-empty').hidden = true;
     if (type === 'team.call') {
-      const li = node('li', data.actor + ' · ' + (data.phase === 'plan' ? 'Planning' : 'Working'));
+      const li = node('li', data.actor + ' · ' + ({ plan: 'Planning', answer: 'Answering' }[data.phase] ?? 'Working'));
       $('plan').append(li);
     }
-    if (type === 'team.recall') $('tools').append(node('li', data.actor + ' · notes ' + (data.hit ? 'reused' : 'loaded') + ' · ' + data.count + ' notes'));
+    if (type === 'team.recall') {
+      // Context used: exactly which confirmed notes this agent received.
+      const li = node('li'), fold = node('details');
+      fold.append(node('summary', data.actor + ' · ' + data.count + ' of ' + (data.considered ?? data.count) + ' notes used'),
+        ...(data.notes ?? []).map(note => node('p', (note.kind === 'rule' ? 'Always · ' : 'Relevant · ') + note.text, 'hint')));
+      li.append(fold); $('tools').append(li);
+    }
+    if (type === 'team.memory') void refresh().catch(e => error(e.message));
     if (type === 'team.usage') {
       const u = data.usage;
       const line = data.actor + ' · ' + (data.model || 'Default model') + ' · input ' + display(u.input) + ' · output ' + display(u.output) + ' · cache read ' + display(u.cacheRead) + ' · write ' + display(u.cacheWrite) + ' · USD ' + (u.costUSD == null ? 'unreported' : String(u.costUSD));

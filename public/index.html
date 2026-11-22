@@ -55,7 +55,9 @@
         <section><div class="section-head"><h2>Shared desktop</h2><button class="quiet" id="new-source">Add file</button></div>
           <p class="hint">Files every agent on this computer can open and reuse. Check files to include with the next task.</p><ul id="files" class="list"></ul>
         </section>
-        <section><div class="section-head"><h2>Notes</h2><button class="quiet" id="new-note">Add note</button></div><ul id="notes" class="list"></ul></section>
+        <section><div class="section-head"><h2>Notes</h2><button class="quiet" id="new-note">Add note</button></div><ul id="notes" class="list"></ul>
+          <h3 id="suggestions-heading" class="usage-heading" hidden>Suggested by agents</h3><p id="suggestions-hint" class="hint" hidden>Agents never use a suggestion until you keep it.</p><ul id="suggestions" class="list" aria-labelledby="suggestions-heading"></ul>
+        </section>
       </div>
       <div class="section-head"><h2>Activity</h2><span id="turn-state" class="turn-state" aria-live="polite">Idle</span></div>
       <p class="activity-empty" id="activity-empty">Activity appears when a turn starts.</p><h3 id="usage-heading" class="usage-heading">Usage</h3><div id="usage" aria-live="polite"></div>
@@ -66,6 +68,11 @@
     <label id="source-name">Title<input id="source-title" maxlength="140"></label>
     <label id="source-address">Link<input id="source-url" type="url" placeholder="Website or GitHub repository"></label>
     <label><span id="body-label">Or paste text</span><textarea id="source-body" rows="8" maxlength="16000"></textarea></label>
+    <div id="note-options" class="stack" hidden>
+      <label class="check"><input type="checkbox" id="note-always" checked aria-describedby="note-always-hint">Always use</label>
+      <p class="hint field-hint" id="note-always-hint">Turn off to use this note only when it matches the task.</p>
+      <label class="check"><input type="checkbox" id="note-shared">Share with every team</label>
+    </div>
     <p id="editor-error" class="error" role="alert"></p><div class="form-actions"><button id="editor-close" class="quiet" type="button">Cancel</button><button class="primary" type="submit">Save</button></div>
   </form></dialog>
   <dialog id="persona-dialog"><form id="persona-form" class="stack"><h2 id="persona-title">New persona</h2>

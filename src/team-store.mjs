@@ -16,6 +16,34 @@ export function folderOf(value) {
   }
   return parts.join('/');
 }
+const stop = new Set('the and for with that this from into your our are was were will have has not but you they them their its about what when which who how all any can should would could use using'.split(' '));
+const words = text => new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(word => word.length > 2 && !stop.has(word)));
+const overlap = (a, b) => { let n = 0; for (const word of a) if (b.has(word)) n++; return n; };
+// A portable reading of Memorix floatation (synaptic.score.v1) without embeddings or a graph:
+// lexical relevance stands in for vector similarity, and the weights keep their published order.
+export function rank(notes, query, { limit = 8, chars = 2000 } = {}) {
+  const q = words(query), day = 86_400_000;
+  const scored = notes.map(note => {
+    const w = words(note.text);
+    const relevance = q.size && w.size ? overlap(q, w) / Math.sqrt(q.size * w.size) : 0;
+    const authority = note.source === 'owner' ? 1 : 0.8;
+    const mass = Math.log(1 + Math.min(1000, note.uses)) / Math.log(1001);
+    const fresh = 0.5 ** ((Date.now() - Date.parse(note.used_at ?? note.created_at)) / day / 30);
+    const score = 0.45 * Math.min(1, relevance) + 0.15 * authority + 0.08 + 0.07 * mass + 0.05 * fresh + 0.05 * note.useful;
+    return { note, words: w, relevance, score };
+  }).filter(entry => entry.note.kind === 'rule' || entry.relevance > 0)
+    .sort((a, b) => (b.note.kind === 'rule') - (a.note.kind === 'rule') || b.score - a.score);
+  const chosen = [];
+  let used = 0;
+  for (const entry of scored) {
+    if (chosen.length >= limit || used + entry.note.text.length > chars) continue;
+    // Anti-redundancy: skip near-duplicates of a note already admitted.
+    if (chosen.some(other => overlap(other.words, entry.words) / (new Set([...other.words, ...entry.words]).size || 1) >= 0.85)) continue;
+    chosen.push(entry);
+    used += entry.note.text.length;
+  }
+  return chosen.map(({ note, score }) => ({ id: note.id, text: note.text, kind: note.kind, shared: note.shared, score: Math.round(score * 100) / 100 }));
+}
 const unavailable = () => new BloomError('FILE_UNAVAILABLE', 'This file is unavailable to the team.', 404);
 
 export class TeamStore {
@@ -43,6 +71,10 @@ export class TeamStore {
       CREATE TABLE IF NOT EXISTS personas (
         id TEXT PRIMARY KEY, name TEXT COLLATE NOCASE NOT NULL UNIQUE, charter TEXT NOT NULL, voice TEXT NOT NULL,
         stage TEXT NOT NULL, model TEXT, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS memories (
+        id TEXT PRIMARY KEY, team TEXT REFERENCES teams, text TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+        source TEXT NOT NULL, source_file TEXT, epoch INTEGER, supersedes TEXT, uses INTEGER NOT NULL DEFAULT 0,
+        useful REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL, used_at TEXT);
       CREATE TABLE IF NOT EXISTS file_links (
         child TEXT NOT NULL REFERENCES desktop_files, parent TEXT NOT NULL REFERENCES desktop_files,
         PRIMARY KEY(child,parent));
@@ -54,8 +86,15 @@ export class TeamStore {
     if (!this.db.prepare('PRAGMA table_info(members)').all().some(column => column.name === 'model')) {
       this.db.exec('ALTER TABLE members ADD COLUMN model TEXT');
     }
+    // Notes saved before 0.5.0 become owner rules: they keep applying to every call, as they always did.
+    this.store.transaction(() => {
+      this.db.prepare(`INSERT OR IGNORE INTO memories (id,team,text,kind,status,source,created_at)
+        SELECT id,team,text,'rule','kept','owner',? FROM notes`).run(new Date().toISOString());
+      this.db.exec('DELETE FROM notes');
+    });
   }
 
+  others(id) { return this.db.prepare('SELECT id,name,charter FROM teams WHERE id<>? ORDER BY name').all(id); }
   team(id) { return this.db.prepare('SELECT * FROM teams WHERE id=?').get(id); }
   require(id) {
     const team = this.team(id);
@@ -99,31 +138,98 @@ export class TeamStore {
   deletePersona(personaId) {
     if (!this.db.prepare('DELETE FROM personas WHERE id=?').run(personaId).changes) throw new BloomError('PERSONA_NOT_FOUND', 'Persona not found.', 404);
   }
-  notes(id) { return this.db.prepare('SELECT id,text FROM notes WHERE team=? ORDER BY rowid').all(id); }
-  addNote(id, text) {
+  // Kept memories this team may use: its own, plus notes shared with every team.
+  notes(id) {
+    return this.db.prepare(`SELECT id,text,kind,source,supersedes,uses,useful,created_at,used_at,(team IS NULL) AS shared FROM memories
+      WHERE status='kept' AND (team=? OR team IS NULL) ORDER BY team IS NULL, rowid`).all(id).map(row => ({ ...row, shared: Boolean(row.shared) }));
+  }
+  // Agent suggestions stay unconfirmed and are never recalled until the owner keeps them.
+  proposals(id) {
+    const { epoch } = this.require(id);
+    return this.db.prepare(`SELECT id,text,source,source_file FROM memories WHERE status='proposed' AND team=? AND epoch=? ORDER BY rowid`).all(id, epoch);
+  }
+  addNote(id, { text, kind = 'rule', shared = false, source = 'owner', supersedes = null }) {
     this.require(id);
-    if (this.notes(id).length >= 24) throw new BloomError('NOTE_LIMIT', 'This team has 24 saved notes. Forget a note to add another.', 409);
-    const note = { id: randomUUID(), text };
-    this.db.prepare('INSERT INTO notes VALUES (?,?,?)').run(note.id, id, text);
-    this.cache.delete(id);
+    const scope = shared ? null : id;
+    const count = this.db.prepare(`SELECT count(*) AS n FROM memories WHERE status='kept' AND team IS ?`).get(scope).n;
+    if (count >= 24) throw new BloomError('NOTE_LIMIT', shared ? 'There are 24 shared notes. Forget one to add another.' : 'This team has 24 saved notes. Forget a note to add another.', 409);
+    const note = { id: randomUUID(), text, kind, shared: Boolean(shared), source, supersedes };
+    this.db.prepare(`INSERT INTO memories (id,team,text,kind,status,source,supersedes,created_at) VALUES (?,?,?,?,'kept',?,?,?)`)
+      .run(note.id, scope, text, kind, source, supersedes, new Date().toISOString());
+    this.cache.clear();
     return note;
   }
-  forget(id, noteId) {
+  propose(id, { text, source, sourceFile, epoch }) {
+    if (this.db.prepare(`SELECT 1 FROM memories WHERE (team=? OR team IS NULL) AND lower(text)=lower(?) AND (status='kept' OR epoch=?)`).get(id, text, epoch)) return;
     this.store.transaction(() => {
-      const result = this.db.prepare('DELETE FROM notes WHERE team=? AND id=?').run(id, noteId);
-      if (!result.changes) throw new BloomError('NOTE_MISSING', 'Team note not found.', 404);
-      this.db.prepare('UPDATE teams SET epoch=epoch+1 WHERE id=?').run(id);
+      this.db.prepare(`INSERT INTO memories (id,team,text,kind,status,source,source_file,epoch,created_at) VALUES (?,?,?,'fact','proposed',?,?,?,?)`)
+        .run(randomUUID(), id, text, source, sourceFile, epoch, new Date().toISOString());
+      // Keep the twelve newest suggestions.
+      this.db.prepare(`DELETE FROM memories WHERE status='proposed' AND team=? AND id NOT IN
+        (SELECT id FROM memories WHERE status='proposed' AND team=? ORDER BY rowid DESC LIMIT 12)`).run(id, id);
     });
-    this.cache.delete(id);
   }
-  recall(id) {
+  memory(id, noteId) {
+    const row = this.db.prepare('SELECT * FROM memories WHERE id=? AND (team=? OR team IS NULL)').get(noteId, id);
+    if (!row) throw new BloomError('NOTE_MISSING', 'Team note not found.', 404);
+    return row;
+  }
+  keep(id, noteId) {
+    const row = this.memory(id, noteId);
+    if (row.status !== 'proposed' || row.epoch !== this.require(id).epoch) throw new BloomError('NOTE_MISSING', 'This suggestion is no longer available.', 404);
+    if (this.db.prepare(`SELECT count(*) AS n FROM memories WHERE status='kept' AND team=?`).get(id).n >= 24) {
+      throw new BloomError('NOTE_LIMIT', 'This team has 24 saved notes. Forget a note to add another.', 409);
+    }
+    this.db.prepare(`UPDATE memories SET status='kept', created_at=? WHERE id=?`).run(new Date().toISOString(), noteId);
+    this.cache.clear();
+    return this.notes(id).find(note => note.id === noteId);
+  }
+  dismiss(id, noteId) {
+    const row = this.memory(id, noteId);
+    if (row.status !== 'proposed') throw new BloomError('NOTE_MISSING', 'This suggestion is no longer available.', 404);
+    this.db.prepare('DELETE FROM memories WHERE id=?').run(noteId);
+  }
+  // Forget and Correct withdraw everything derived from a kept note: the epoch moves for every team that could use it.
+  forget(id, noteId, replacement = null) {
+    const result = this.store.transaction(() => {
+      const row = this.memory(id, noteId);
+      if (row.status !== 'kept') throw new BloomError('NOTE_MISSING', 'Team note not found.', 404);
+      this.db.prepare('DELETE FROM memories WHERE id=?').run(noteId);
+      const teams = row.team === null ? this.db.prepare('SELECT id FROM teams').all().map(t => t.id) : [id];
+      for (const team of teams) {
+        this.db.prepare('UPDATE teams SET epoch=epoch+1 WHERE id=?').run(team);
+        this.db.prepare(`DELETE FROM memories WHERE status='proposed' AND team=?`).run(team);
+      }
+      const note = replacement ? this.addNote(id, { text: replacement, kind: row.kind, shared: row.team === null, source: 'owner', supersedes: noteId }) : null;
+      return { teams, note };
+    });
+    this.cache.clear();
+    return result;
+  }
+  // Tri-Cluster in one process: SQLite is the record, this TTL cache holds the hot set, ranking runs per call.
+  recall(id, query = '') {
     const { epoch } = this.require(id);
     const cached = this.cache.get(id);
-    if (cached?.epoch === epoch && cached.expires > Date.now()) return { notes: cached.notes, epoch, hit: true };
-    const notes = this.notes(id);
-    if (this.cache.size >= 128) this.cache.delete(this.cache.keys().next().value);
-    this.cache.set(id, { notes, epoch, expires: Date.now() + 60_000 });
-    return { notes, epoch, hit: false };
+    const hit = cached?.epoch === epoch && cached.expires > Date.now();
+    const notes = hit ? cached.notes : this.notes(id);
+    if (!hit) {
+      if (this.cache.size >= 128) this.cache.delete(this.cache.keys().next().value);
+      this.cache.set(id, { notes, epoch, expires: Date.now() + 60_000 });
+    }
+    return { notes: rank(notes, query), considered: notes.length, epoch, hit };
+  }
+  // Every admitted note gains mass; notes behind an approved review gain usefulness.
+  used(ids, { useful = false } = {}) {
+    const now = new Date().toISOString();
+    for (const id of ids) {
+      if (useful) this.db.prepare('UPDATE memories SET useful=MIN(1, useful+0.08) WHERE id=?').run(id);
+      else this.db.prepare('UPDATE memories SET uses=uses+1, used_at=? WHERE id=?').run(now, id);
+    }
+    for (const entry of this.cache.values()) for (const note of entry.notes) {
+      if (!ids.includes(note.id)) continue;
+      if (useful) note.useful = Math.min(1, note.useful + 0.08);
+      else { note.uses++; note.used_at = now; }
+    }
   }
   files(id) {
     const team = this.require(id);

@@ -112,6 +112,20 @@ export class Harness {
     return { turnId: id };
   }
 
+  // Open a turn in another session for a team-to-team question. Stop in that session aborts only this answer.
+  borrow(sessionId) {
+    const { id, events } = this.store.openTurn(sessionId);
+    let settle;
+    const state = { id, controller: new AbortController(), permissions: new Map(), task: new Promise(resolve => { settle = resolve; }) };
+    this.active.set(sessionId, state);
+    for (const event of events) this.publish(sessionId, event);
+    return { state, finish: (status, details) => {
+      if (this.active.get(sessionId) === state) this.active.delete(sessionId);
+      this.publish(sessionId, this.store.finishTurn(sessionId, id, state.controller.signal.aborted ? 'stopped' : status, details));
+      settle();
+    } };
+  }
+
   async execute({ session, adapter, state, text, selectedModel, context }) {
     const sessionId = session.id;
     const signal = state.controller.signal;

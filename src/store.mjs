@@ -116,6 +116,19 @@ export class Store {
     });
   }
 
+  // A turn opened on another team's behalf: no user message, so the team shows it is busy answering.
+  openTurn(sessionId) {
+    return this.transaction(() => {
+      if (this.db.prepare("SELECT 1 FROM turns WHERE session_id = ? AND status = 'running'").get(sessionId)) {
+        throw new BloomError('TURN_ACTIVE', 'This session already has an active turn.', 409);
+      }
+      const id = randomUUID();
+      this.db.prepare("INSERT INTO turns VALUES (?, ?, ?, 'running', ?, NULL)").run(id, sessionId, process.pid, now());
+      const { model, title } = this.getSession(sessionId);
+      return { id, events: [this.event(sessionId, id, 'turn.started', { model, title })] };
+    });
+  }
+
   bindSession(sessionId, nativeId, model) {
     this.db.prepare('UPDATE sessions SET native_id = ?, model = ?, updated_at = ? WHERE id = ?')
       .run(nativeId, model, now(), sessionId);

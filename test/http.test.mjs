@@ -152,3 +152,22 @@ test('serves the persona library and recruits a persona onto a team', async t =>
   assert.equal((await send('/api/personas/' + iris.id, { method: 'DELETE', body: {} })).json().code, 'PERSONA_NOT_FOUND');
   assert.equal((await send('/api/teams/' + team.id)).json().members.length, 1);
 });
+
+test('serves note kinds, shared notes, Correct, and suggestion Keep and Dismiss', async t => {
+  const { send, harness } = setup(t);
+  const team = (await send('/api/teams', { method: 'POST', body: { name: 'Desk lead' } })).json();
+  const fact = await send('/api/teams/' + team.id + '/notes', { method: 'POST', body: { text: 'Baseline is 13.', kind: 'fact', shared: true } });
+  assert.equal(fact.status, 201);
+  assert.deepEqual([fact.json().kind, fact.json().shared], ['fact', true]);
+  assert.equal((await send('/api/teams/' + team.id + '/notes', { method: 'POST', body: { text: 'x', kind: 'odd' } })).json().code, 'TEAM_INPUT');
+  const corrected = await send('/api/teams/' + team.id + '/notes/' + fact.json().id, { method: 'PUT', body: { text: 'Baseline is 14.' } });
+  assert.deepEqual([corrected.json().note.text, corrected.json().note.supersedes], ['Baseline is 14.', fact.json().id]);
+  const { epoch } = harness.teams.store.require(team.id);
+  for (const text of ['Keep me.', 'Drop me.']) harness.teams.store.propose(team.id, { text, source: 'Researcher', sourceFile: null, epoch });
+  const [keep, drop] = (await send('/api/teams/' + team.id)).json().proposals;
+  assert.equal((await send('/api/teams/' + team.id + '/suggestions/' + keep.id, { method: 'POST', body: {} })).json().text, 'Keep me.');
+  assert.deepEqual((await send('/api/teams/' + team.id + '/suggestions/' + drop.id, { method: 'DELETE', body: {} })).json(), { dismissed: true });
+  const detail = (await send('/api/teams/' + team.id)).json();
+  assert.deepEqual(detail.notes.map(n => n.text), ['Keep me.', 'Baseline is 14.']);
+  assert.deepEqual(detail.proposals, []);
+});

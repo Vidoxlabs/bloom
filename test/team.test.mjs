@@ -253,3 +253,115 @@ test('a persona library lets any head recruit saved specialists with their own i
   assert.deepEqual(teams.personas().map(p => p.name), ['Iris']);
   assert.deepEqual(teams.detail(b.id).members.map(m => m.name), ['Quill'], 'deleting a persona leaves existing teams unchanged');
 });
+
+test('team memory ranks confirmed notes, keeps agent suggestions unconfirmed, and corrects or forgets across teams', async t => {
+  const { teams, harness, calls } = setup(t);
+  const a = teams.create({ name: 'Desk lead' }), b = teams.create({ name: 'Field lead' });
+  const source = await teams.source(a.id, { title: 'Greenhouse notebook', text: 'Four samples were collected.' });
+  const rule = teams.note(a.id, { text: 'Write in British English.' });
+  const fact = teams.note(a.id, { text: 'The greenhouse baseline is 13 units.', kind: 'fact' });
+  const stray = teams.note(a.id, { text: 'Invoices go to the finance inbox.', kind: 'fact' });
+  const shared = teams.note(a.id, { text: 'Every guide ends with open questions.', shared: true });
+  assert.throws(() => teams.note(a.id, { text: 'x', kind: 'vague' }), { code: 'TEAM_INPUT' });
+  assert.deepEqual(teams.detail(b.id).notes.map(n => [n.text, n.shared]), [['Every guide ends with open questions.', true]], 'a shared note reaches every team');
+
+  const first = await run(harness, a.id, { text: 'Summarise the greenhouse samples against the baseline.', files: [source.id] });
+  assert.equal(first.outcome.status, 'finished');
+  const recall = first.events.find(e => e.type === 'team.recall').data;
+  assert.deepEqual(recall.notes.map(n => n.id).sort(), [rule.id, fact.id, shared.id].sort(), 'rules always apply; facts only when relevant');
+  assert.equal(recall.considered, 4);
+  const work = calls.find(c => c.phase === 'work');
+  assert.ok(work.prompt.includes('13 units') && !work.prompt.includes('finance inbox'));
+  const row = id => teams.store.db.prepare('SELECT uses, useful FROM memories WHERE id=?').get(id);
+  assert.equal(row(fact.id).uses, 3);
+  assert.equal(row(fact.id).useful, 0.08, 'an approved review reinforces the notes behind it');
+  assert.equal(row(stray.id).uses, 0);
+
+  const [suggestion] = teams.detail(a.id).proposals;
+  assert.equal(suggestion.source, 'Researcher');
+  assert.match(suggestion.text, /Greenhouse notebook is a source/);
+  assert.ok(first.events.some(e => e.type === 'team.memory'));
+  const before = calls.length;
+  await run(harness, a.id, { text: 'Greenhouse notebook check', files: [source.id] });
+  assert.ok(calls.slice(before).every(c => !c.prompt.includes('is a source this team')), 'suggestions are never recalled until kept');
+  assert.equal(teams.detail(a.id).proposals.length, 1, 'a repeated suggestion is not stored twice');
+  assert.throws(() => teams.keep(b.id, suggestion.id), { code: 'NOTE_MISSING' });
+  assert.equal(teams.keep(a.id, suggestion.id).source, 'Researcher');
+  assert.deepEqual(teams.detail(a.id).proposals, []);
+
+  const scoped = (await run(harness, a.id, { text: 'Greenhouse baseline', files: [source.id] })).posts.at(-1).file.id;
+  const corrected = teams.correct(a.id, fact.id, { text: 'The greenhouse baseline is 14 units.' });
+  assert.equal(corrected.note.supersedes, fact.id);
+  assert.equal(corrected.note.kind, 'fact');
+  assert.throws(() => teams.store.read(a.id, scoped), { code: 'FILE_UNAVAILABLE' }, 'Correct withdraws work derived from the old note');
+  assert.ok(!teams.detail(a.id).notes.some(n => n.text.includes('13 units')));
+
+  const epochB = teams.store.require(b.id).epoch;
+  teams.forget(b.id, shared.id);
+  assert.equal(teams.store.require(b.id).epoch, epochB + 1, 'forgetting a shared note moves every team');
+  assert.ok(!teams.detail(a.id).notes.some(n => n.shared));
+  teams.store.propose(a.id, { text: 'Samples are labelled by bench.', source: 'Researcher', sourceFile: null, epoch: teams.store.require(a.id).epoch });
+  const [extra] = teams.detail(a.id).proposals;
+  assert.deepEqual(teams.dismiss(a.id, extra.id), { dismissed: true });
+  assert.deepEqual(teams.detail(a.id).proposals, []);
+});
+
+test('notes saved before 0.5.0 migrate as owner rules', async t => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), 'bloom-migrate-'));
+  t.after(() => rmSync(dataDirectory, { recursive: true, force: true }));
+  let store = new Store(dataDirectory), harness = new Harness({ store, dataDirectory, adapters: [], teamProvider: demoProvider });
+  const team = harness.teams.create({});
+  store.db.prepare('INSERT INTO notes VALUES (?,?,?)').run('11111111-1111-4111-8111-111111111111', team.id, 'Old note');
+  await harness.close(); store.close();
+  store = new Store(dataDirectory); harness = new Harness({ store, dataDirectory, adapters: [], teamProvider: demoProvider });
+  assert.deepEqual(harness.teams.detail(team.id).notes.map(n => [n.text, n.kind, n.source]), [['Old note', 'rule', 'owner']]);
+  assert.equal(store.db.prepare('SELECT count(*) AS n FROM notes').get().n, 0);
+  await harness.close(); store.close();
+});
+
+test('a head agent asks another team, which answers once from shareable material in both conversations', async t => {
+  let hold = null, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { teams, harness, calls } = setup(t, async input => {
+    if (input.phase === 'answer' && hold) await hold(input);
+    if (input.brief === 'Own work') await gate;
+    return demoProvider.generate(input);
+  });
+  const a = teams.create({ name: 'Desk lead' });
+  const b = teams.create({ name: 'Field lead', charter: 'Run the greenhouse field trials.' });
+  teams.note(b.id, { text: 'field-private-canary' });
+  teams.note(b.id, { text: 'Trials pause during frost.', shared: true });
+  const first = await run(harness, a.id, { text: 'Ask Field lead before writing the guide.' });
+  assert.equal(first.outcome.status, 'finished');
+  const question = first.posts.find(p => p.toTeam);
+  assert.deepEqual(question.toTeam, { id: b.id, name: 'Field lead' });
+  const answer = first.posts.find(p => p.fromTeam);
+  assert.equal(answer.author, 'Field lead');
+  assert.match(answer.text, /greenhouse field trials/);
+  const answerCall = calls.find(c => c.phase === 'answer');
+  assert.ok(answerCall.prompt.includes('Trials pause during frost.'));
+  assert.ok(calls.every(c => !c.prompt.includes('field-private-canary')), 'private notes never cross teams');
+  assert.match(answerCall.system, /Your charter: Run the greenhouse field trials\./);
+  assert.ok(calls.find(c => c.phase === 'work').prompt.includes('Field lead (team Field lead)'), 'specialists see the answer as another team');
+  assert.ok(first.events.some(e => e.type === 'team.usage' && e.data.actor === 'Field lead'), 'the asking team pays for the answer');
+  const other = harness.store.eventsAfter(b.id, 0);
+  assert.deepEqual(other.map(e => e.type), ['turn.started', 'team.message', 'team.message', 'turn.finished']);
+  assert.deepEqual(other[1].data.fromTeam, { id: a.id, name: 'Desk lead' });
+  assert.deepEqual(other[2].data.toTeam, { id: a.id, name: 'Desk lead' });
+  assert.equal(other[3].data.status, 'finished');
+  assert.ok(calls.filter(c => c.phase === 'answer').every(c => !('teams' in JSON.parse(c.prompt))), 'an answering head sees no other teams, so it cannot pass the question on');
+
+  // A busy team is skipped; stopping the answer in the other team leaves the asking team running.
+  harness.start(b.id, { text: 'Own work' });
+  const own = harness.active.get(b.id).task;
+  const busy = await run(harness, a.id, { text: 'Ask Field lead again.' });
+  assert.equal(busy.outcome.status, 'finished');
+  assert.ok(busy.posts.some(p => /Field lead is busy/.test(p.text)));
+  assert.ok(!calls.some(c => c.phase === 'answer' && calls.indexOf(c) > calls.findIndex(x => x.brief === 'Ask Field lead again.')));
+  release(); await own;
+  hold = async input => { harness.stop(b.id, { turnId: harness.active.get(b.id).id }); await new Promise(r => setTimeout(r, 5)); input.signal.throwIfAborted(); };
+  const stopped = await run(harness, a.id, { text: 'Ask Field lead once more.' });
+  assert.equal(stopped.outcome.status, 'finished');
+  assert.ok(stopped.posts.some(p => /Field lead stopped the question/.test(p.text)));
+  assert.equal(harness.store.eventsAfter(b.id, 0).filter(e => e.type === 'turn.finished').at(-1).data.status, 'stopped');
+});

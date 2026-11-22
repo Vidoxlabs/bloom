@@ -142,11 +142,11 @@ function selectSession(session) {
   };
 }
 
-function message(turnId, role, text, speaker, file, assignments, verdict) {
+function message(turnId, role, text, speaker, file, assignments, verdict, extra = {}) {
   $('conversation-placeholder')?.remove();
   const transcript = $('transcript');
   const atBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90;
-  const key = turnId + '/' + role + '/' + (speaker ?? '');
+  const key = extra.key ?? turnId + '/' + role + '/' + (speaker ?? '');
   let content = state.messages.get(key);
   if (!content) {
     const article = node('article', null, 'message is-' + role);
@@ -154,6 +154,9 @@ function message(turnId, role, text, speaker, file, assignments, verdict) {
     const author = speaker ?? (role === 'user' ? 'You' : state.adapterLabels.get(state.session.adapter) ?? 'Agent');
     content = node('p');
     article.append(node('header', author), content);
+    // Team-to-team messages say which team they came from or went to.
+    if (extra.toTeam) { article.classList.add('is-crossteam'); article.insertBefore(node('p', 'Question for ' + extra.toTeam.name, 'hint'), content); }
+    if (extra.fromTeam) { article.classList.add('is-crossteam'); article.insertBefore(node('p', 'From team ' + extra.fromTeam.name, 'hint'), content); }
     if (assignments) {
       const list = node('ul');
       for (const a of assignments) list.append(node('li', a.name + ' — ' + a.assignment));
@@ -229,7 +232,7 @@ function resolveApproval(id, kind) {
   state.approvals.delete(id);
 }
 
-function apply({ turnId, type, data }) {
+function apply({ seq, turnId, type, data }) {
   team.activity(type, data);
   switch (type) {
     case 'user.message':
@@ -262,7 +265,8 @@ function apply({ turnId, type, data }) {
       $('usage').textContent = 'Tokens: ' + (data.total ?? 'unreported') + ' · Input: ' + (data.input ?? 'unreported') + ' · Output: ' + (data.output ?? 'unreported') + ' · Cache read: ' + (data.cacheRead ?? 'unreported') + ' · Cache write: ' + (data.cacheWrite ?? 'unreported');
       break;
     case 'team.message':
-      message(turnId, 'assistant', data.text, data.author, data.file, data.assignments, data.verdict);
+      message(turnId, 'assistant', data.text, data.author, data.file, data.assignments, data.verdict,
+        { key: 'event/' + seq, toTeam: data.toTeam, fromTeam: data.fromTeam });
       void team.refresh().catch(e => error(e.message));
       break;
     case 'assistant.delta': message(turnId, 'assistant', data.text); break;

@@ -130,6 +130,49 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await personaForm.getByRole('button',{name:'Delete',exact:true}).click();
   await library.getByText('Iris · Research',{exact:true}).waitFor({state:'detached'});
   if (process.env.BLOOM_UI_EVIDENCE) await page.screenshot({path:join(process.env.BLOOM_UI_EVIDENCE,'persona-library.png')});
+
+  // Team memory: rules always apply, facts only when relevant, agent suggestions wait for Keep.
+  await page.getByRole('button',{name:'Add note',exact:true}).click();
+  const noteForm = page.locator('#editor[open]');
+  assert.equal(await noteForm.getByLabel('Always use').isChecked(),true);
+  assert.equal(await noteForm.getByLabel('Always use').evaluate(field => document.getElementById(field.getAttribute('aria-describedby')).textContent),'Turn off to use this note only when it matches the task.');
+  await page.getByLabel('What should this team remember?').fill('Write in British English.');
+  await noteForm.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByRole('button',{name:'Add note',exact:true}).click();
+  await page.getByLabel('What should this team remember?').fill('Invoices go to the finance inbox.');
+  await noteForm.getByLabel('Always use').uncheck();
+  await noteForm.getByRole('button',{name:'Save',exact:true}).click();
+  await page.locator('#notes li',{hasText:'Invoices go to the finance inbox.'}).getByText('Used when relevant').waitFor();
+  await page.locator('#files li',{hasText:sourceTitle}).getByRole('checkbox').check();
+  await page.getByLabel('Message').fill('Summarise the greenhouse samples.');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  const used = page.locator('#tools details').first();
+  await used.locator('summary',{hasText:/^Researcher · 1 of 2 notes used$/}).waitFor();
+  await used.locator('summary').click();
+  await used.getByText('Always · Write in British English.').waitFor();
+  await page.getByRole('heading',{name:'Suggested by agents',exact:true}).waitFor();
+  await page.getByText('Agents never use a suggestion until you keep it.').waitFor();
+  await page.getByRole('button',{name:/^Keep suggestion: Field notebook/}).click();
+  await page.locator('#notes li',{hasText:'is a source this team has worked from.'}).getByText(/Suggested by Researcher/).waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Suggested by agents'}).count(),0);
+  await page.locator('#notes li',{hasText:'Write in British English.'}).getByRole('button',{name:'Correct',exact:true}).click();
+  await noteForm.getByRole('heading',{name:'Correct a note',exact:true}).waitFor();
+  await page.getByLabel('What should the team remember instead?').fill('Write in American English.');
+  await noteForm.getByRole('button',{name:'Save',exact:true}).click();
+  await page.locator('#notes li',{hasText:'Write in American English.'}).getByText('Always used · Corrected').waitFor();
+
+  // Team to team: the second desk asks Desk lead a question and both conversations show it.
+  await page.getByLabel('Message').fill('Ask Desk lead before starting.');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await page.locator('.is-crossteam',{hasText:'Question for Desk lead'}).waitFor();
+  await page.locator('.is-crossteam',{hasText:'From team Desk lead'}).getByText(/^From our side:/).waitFor();
+  await page.getByText('Turn ended').waitFor();
+  await page.locator('#plan li',{hasText:'Desk lead · Answering'}).waitFor();
+  if (process.env.BLOOM_UI_EVIDENCE) await page.screenshot({path:join(process.env.BLOOM_UI_EVIDENCE,'team-question.png')});
+  await page.getByRole('button',{name:'Desk lead',exact:true}).click();
+  await page.getByRole('heading',{name:'Desk lead',exact:true}).waitFor();
+  await page.locator('.is-crossteam',{hasText:'From team Second desk'}).waitFor();
+  await page.locator('.is-crossteam',{hasText:'Question for Second desk'}).waitFor();
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:900});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true);

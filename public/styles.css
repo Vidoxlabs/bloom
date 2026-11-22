@@ -88,7 +88,7 @@ a { color: inherit; }
 .list li, .tools li, .plan li, #usage { overflow-wrap: anywhere; font-size: var(--vi-typography-typography-size-sm-base); }
 #files li, #notes li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: var(--vi-space-gap-compact-default); }
 #files label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--vi-space-gap-compact-default); }
-#files input { width: auto; margin: 0; accent-color: var(--vi-colors-surface-accent-violet-base); }
+#files input, .check input { width: auto; margin: 0; accent-color: var(--vi-colors-surface-accent-violet-base); }
 .plan, .tools { padding-inline-start: var(--vi-space-rhythm-5-base); }
 .tools li > span, .plan li > span + span { margin-inline-start: var(--vi-space-gap-compact-default); }
 .approval, #usage:not(:empty) { margin-block: var(--vi-space-gap-compact-default); padding: var(--vi-space-gap-compact-default); border: 1px solid var(--vi-colors-border-separator-primary-base); border-radius: var(--vi-spacing-layout-radius-control-base); }
@@ -116,3 +116,9 @@ pre { font: inherit; overflow-wrap: anywhere; max-height: 55vh; overflow: auto; 
 .personas { margin-top: var(--vi-space-rhythm-6-base); padding-top: var(--vi-space-rhythm-4-base); border-top: 1px solid var(--vi-colors-border-separator-primary-base); display: grid; gap: var(--vi-space-gap-compact-default); }
 .persona { display: grid; gap: var(--vi-space-gap-dense-default); overflow-wrap: anywhere; }
 .persona-actions { display: flex; flex-wrap: wrap; margin-inline-start: calc(-1 * var(--vi-space-gap-dense-default)); }
+.stack label.check { display: flex; align-items: center; gap: var(--vi-space-gap-compact-default); }
+.note-body { display: grid; gap: var(--vi-space-gap-dense-default); }
+.note-actions { display: flex; flex-wrap: wrap; justify-content: end; }
+#suggestions li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: var(--vi-space-gap-compact-default); }
+.is-crossteam { border-inline-start: 2px solid var(--vi-colors-surface-accent-violet-base); padding-inline-start: var(--vi-space-gap-spacious-default); }
+#tools details p { margin-top: var(--vi-space-gap-dense-default); }

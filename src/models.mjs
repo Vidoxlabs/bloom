@@ -92,7 +92,7 @@ const demoTeam = [
 
 export const demoProvider = {
   label: 'Scripted demo', defaultModel: 'demo/scripted',
-  async generate({ phase, agent, brief, documents, library = [], signal }) {
+  async generate({ phase, agent, brief, documents, library = [], teams = [], signal }) {
     signal.throwIfAborted();
     let result;
     if (phase === 'plan') {
@@ -104,6 +104,11 @@ export const demoProvider = {
         return { name: saved?.name ?? name, stage, charter, voice: 'Plain and specific.', assignment: charter };
       });
       result = { message: recruited.length ? 'I assigned three steps and recruited ' + recruited.join(' and ') + ' from the persona library.' : 'I assigned three steps for this brief.', agents };
+      // The scripted head asks another team when the brief names it after "ask".
+      const asked = /\bask\b/i.test(brief) && teams.find(name => brief.toLowerCase().includes(name.toLowerCase()));
+      if (asked) result.ask = { team: asked, question: 'What should we know before we start on this brief?' };
+    } else if (phase === 'answer') {
+      result = { message: 'From our side: ' + agent.charter.replace(/\.$/, '') + '. We have nothing else on record that we can share for this.' };
     } else {
       const role = demoTeam.find(member => member.stage === agent.stage);
       const title = role?.title ?? 'Work notes';
@@ -113,7 +118,8 @@ export const demoProvider = {
       const previous = documents.find(file => file.title === agent.name + ' · ' + title && agent.stage === 'assemble');
       result = { title: agent.name + ' · ' + title, message: previous ? 'I revised the guide; the earlier version stays in its history.' : role?.message ?? 'The work notes are ready.',
         document: '# ' + title + '\n\nScripted example for this brief.\n\n' + briefText + '\n\n## Inputs\n\n' + sources,
-        verdict: agent.stage === 'review' ? 'approve' : undefined, folder: role?.folder, revises: previous?.id };
+        verdict: agent.stage === 'review' ? 'approve' : undefined, folder: role?.folder, revises: previous?.id,
+        remember: agent.stage === 'research' && documents.length ? [documents[0].title.slice(0, 120) + ' is a source this team has worked from.'] : undefined };
     }
     return { text: JSON.stringify(result), complete: true, model: 'demo/scripted', usage: chatUsage() };
   },
