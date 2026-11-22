@@ -62,7 +62,7 @@ a { color: inherit; }
 .message header { font-size: var(--vi-typography-typography-size-sm-base); font-weight: var(--vi-typography-typography-weight-semibold-base); margin-bottom: var(--vi-space-gap-dense-default); }
 .message ul { margin-block: var(--vi-space-gap-compact-default); padding-inline-start: var(--vi-space-rhythm-5-base); }
 .message.is-user { align-self: end; background: var(--vi-colors-surface-background-tertiary-base); border-radius: var(--vi-spacing-layout-radius-standard-base); padding: var(--vi-space-gap-compact-default) var(--vi-space-gap-spacious-default); }
-.file-button { margin-top: var(--vi-space-gap-compact-default); }
+.file-button { max-inline-size: 100%; margin-top: var(--vi-space-gap-compact-default); overflow-wrap: anywhere; }
 .composer { margin: var(--vi-space-gap-compact-default) var(--vi-space-rhythm-page-gutter-base) var(--vi-space-rhythm-4-base);
   padding: var(--vi-spacing-layout-padding-small-base); background: var(--vi-colors-surface-background-secondary-base);
   border: 1px solid var(--vi-colors-border-separator-primary-base); border-radius: var(--vi-spacing-layout-radius-standard-base); }
@@ -79,8 +79,9 @@ a { color: inherit; }
 #team-inspector { margin-bottom: var(--vi-space-rhythm-4-base); }
 .list { list-style: none; padding: 0; margin-top: var(--vi-space-gap-compact-default); }
 .list li, .tools li, .plan li, #usage { overflow-wrap: anywhere; font-size: var(--vi-typography-typography-size-sm-base); }
-#files li, #notes li { display: flex; align-items: baseline; justify-content: space-between; gap: var(--vi-space-gap-compact-default); }
-#files input { width: auto; margin-inline-end: var(--vi-space-gap-compact-default); accent-color: var(--vi-colors-surface-accent-violet-base); }
+#files li, #notes li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: var(--vi-space-gap-compact-default); }
+#files label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--vi-space-gap-compact-default); }
+#files input { width: auto; margin: 0; accent-color: var(--vi-colors-surface-accent-violet-base); }
 .plan, .tools { padding-inline-start: var(--vi-space-rhythm-5-base); }
 .tools li > span, .plan li > span + span { margin-inline-start: var(--vi-space-gap-compact-default); }
 .approval, #usage:not(:empty) { margin-block: var(--vi-space-gap-compact-default); padding: var(--vi-space-gap-compact-default); border: 1px solid var(--vi-colors-border-separator-primary-base); border-radius: var(--vi-spacing-layout-radius-control-base); }

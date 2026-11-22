@@ -28,7 +28,7 @@ test('a head creates specialists who exchange durable, hash-linked documents on 
   const first = await run(harness, a.id, { files: [source.id] });
   assert.equal(first.outcome.status, 'finished');
   assert.deepEqual(first.posts.map(p => p.author), ['Editorial lead','Researcher','Reviewer','Assembler']);
-  assert.match(calls[2].prompt, /Researcher saved a scripted example/);
+  assert.match(calls[2].prompt, /The source findings are ready for review/);
   assert.equal(first.posts[2].verdict, 'approve');
   const final = teams.store.read(b.id, first.posts[3].file.id);
   assert.equal(final.parents.length, 3);

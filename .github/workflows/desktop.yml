@@ -2,6 +2,7 @@ name: Verify shared graphical desktop
 on:
   push:
     paths:
+      - package.json
       - compose.desktop.yaml
       - scripts/desktop.mjs
       - checks/desktop.sh

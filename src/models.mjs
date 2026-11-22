@@ -84,20 +84,30 @@ export function createServerProvider({ baseURL, defaultModel, username = 'openco
   };
 }
 
+const demoTeam = [
+  { name: 'Researcher', stage: 'research', title: 'Source findings', charter: 'Extract claims and cite the supplied sources.', message: 'The source findings are ready for review.' },
+  { name: 'Reviewer', stage: 'review', title: 'Evidence review', charter: 'Check each finding against its source and flag gaps.', message: 'The evidence review is ready for the assembler.' },
+  { name: 'Assembler', stage: 'assemble', title: 'Reviewed guide', charter: 'Turn the reviewed findings into a guide.', message: 'The guide is ready to open.' },
+];
+
 export const demoProvider = {
   label: 'Scripted demo', defaultModel: 'demo/scripted',
   async generate({ phase, agent, brief, documents, signal }) {
     signal.throwIfAborted();
-    const members = [
-      ['Researcher', 'Findings', 'Extract verifiable claims and cite the supplied sources.', 'research'],
-      ['Reviewer', 'Review', 'Check each finding against its source and flag unsupported claims.', 'review'],
-      ['Assembler', 'Guide', 'Assemble the reviewed findings into a guide.', 'assemble'],
-    ];
-    const sources = documents.map(file => file.title).join(', ') || 'No source attached';
-    const result = phase === 'plan'
-      ? { message: 'I assigned the research, review and assembly for this brief.', agents: members.map(([name, title, charter, stage]) => ({ name, charter, stage, voice: 'Plain and specific.', assignment: title + ' for ' + brief.slice(0, 100) })) }
-      : { message: agent.name + ' saved a scripted example.', title: agent.name + ' · ' + brief.slice(0, 60),
-        document: '# ' + agent.name + '\n\nScripted example for “' + brief + '”.\n\nInputs: ' + sources + '.', verdict: agent.stage === 'review' ? 'approve' : undefined };
+    let result;
+    if (phase === 'plan') {
+      result = { message: 'I assigned three steps for this brief.', agents: demoTeam.map(({ name, stage, charter }) => ({
+        name, stage, charter, voice: 'Plain and specific.', assignment: charter,
+      })) };
+    } else {
+      const role = demoTeam.find(member => member.stage === agent.stage);
+      const title = role?.title ?? 'Work notes';
+      const sources = documents.map(file => '- ' + file.title).join('\n') || 'No sources attached.';
+      const briefText = brief.length > 2000 ? brief.slice(0, 2000).trimEnd() + '…' : brief;
+      result = { title: agent.name + ' · ' + title, message: role?.message ?? 'The work notes are ready.',
+        document: '# ' + title + '\n\nScripted example for this brief.\n\n' + briefText + '\n\n## Inputs\n\n' + sources,
+        verdict: agent.stage === 'review' ? 'approve' : undefined };
+    }
     return { text: JSON.stringify(result), complete: true, model: 'demo/scripted', usage: chatUsage() };
   },
 };

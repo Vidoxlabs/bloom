@@ -17,7 +17,8 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.getByLabel('Head agent name').fill('Desk lead');
   await page.getByRole('button',{name:'Create team',exact:true}).click();
   await page.getByRole('button',{name:'Add source'}).click();
-  await page.getByLabel('Title',{exact:true}).fill('Field notebook');
+  const sourceTitle = 'Field notebook — observations from the first four greenhouse samples';
+  await page.getByLabel('Title',{exact:true}).fill(sourceTitle);
   await page.getByLabel('Or paste text').fill('Four samples were collected.');
   await page.getByRole('button',{name:'Save',exact:true}).click();
   await page.getByRole('button',{name:'Use research brief'}).click();
@@ -25,17 +26,24 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.getByRole('button',{name:/Open Assembler/}).click();
   await page.locator('#reader[open]').waitFor();
   assert.match(await page.locator('#reader-body').innerText(),/Field notebook/);
-  await page.getByRole('dialog').getByRole('button',{name:'Field notebook',exact:true}).click();
-  await page.getByRole('heading',{name:'Field notebook',exact:true}).waitFor();
+  await page.getByRole('dialog').getByRole('button',{name:sourceTitle,exact:true}).click();
+  await page.getByRole('heading',{name:sourceTitle,exact:true}).waitFor();
   assert.equal(await page.locator('#reader-body').innerText(),'Four samples were collected.');
   await page.getByRole('button',{name:'Close',exact:true}).last().click();
   await page.reload();
-  await page.getByRole('button',{name:/Open Assembler/}).waitFor();
+  await page.getByRole('button',{name:'Open Assembler · Reviewed guide',exact:true}).waitFor();
+  assert.match(await page.locator('#usage summary').innerText(), /4\/6 model calls · tokens unreported/);
   await page.evaluate(() => document.fonts.ready);
   assert.equal(await page.evaluate(() => document.fonts.check('16px Geist')),true);
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:900});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true);
+    const actionLines = await page.locator('#files .text-button').evaluateAll(buttons => buttons.map(button => {
+      const label = document.createRange();
+      label.selectNodeContents(button);
+      return label.getClientRects().length;
+    }));
+    assert.deepEqual(actionLines, [1, 1, 1, 1], 'Each Open action fits on one line beside its filename');
     const contrast = await page.evaluate(() => {
       function luminance(rgb) {
         const parts = rgb.match(/[\d.]+/g).slice(0,3).map(v => Number(v)/255).map(v => v <= .04045 ? v/12.92 : ((v+.055)/1.055)**2.4);

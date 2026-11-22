@@ -133,9 +133,14 @@ export function teamView({ $, node, request, error, state }) {
     if (type === 'team.recall') $('tools').append(node('li', data.actor + ' · memory ' + (data.hit ? 'cache hit' : 'read') + ' · ' + data.count + ' notes'));
     if (type === 'team.usage') {
       const u = data.usage;
-      usageByActor.set(data.calls, data.actor + ' · ' + (data.model || 'Default model') + ' · input ' + display(u.input) + ' · output ' + display(u.output) + ' · cache read ' + display(u.cacheRead) + ' · write ' + display(u.cacheWrite) + ' · USD ' + (u.costUSD == null ? 'unreported' : String(u.costUSD)));
-      const details = node('details'), title = data.calls + '/' + data.limit + ' model calls · ' + display(data.measuredTotal) + ' measured tokens' + (data.incomplete ? ' (partial)' : '');
-      details.append(node('summary', title), ...[...usageByActor.values()].map(v => node('p', v, 'hint')));
+      const line = data.actor + ' · ' + (data.model || 'Default model') + ' · input ' + display(u.input) + ' · output ' + display(u.output) + ' · cache read ' + display(u.cacheRead) + ' · write ' + display(u.cacheWrite) + ' · USD ' + (u.costUSD == null ? 'unreported' : String(u.costUSD));
+      usageByActor.set(data.calls, { line, total: u.total });
+      const records = [...usageByActor.values()];
+      const tokens = records.some(record => Number.isSafeInteger(record.total) && record.total >= 0)
+        ? display(data.measuredTotal) + ' measured tokens' + (data.incomplete ? ' (partial)' : '')
+        : 'tokens unreported';
+      const details = node('details');
+      details.append(node('summary', data.calls + '/' + data.limit + ' model calls · ' + tokens), ...records.map(record => node('p', record.line, 'hint')));
       $('usage').replaceChildren(details);
     }
   }
