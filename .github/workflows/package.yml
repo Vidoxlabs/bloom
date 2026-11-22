@@ -67,3 +67,17 @@ jobs:
               gh release upload "$BLOOM_TAG" "$file" --repo "$GITHUB_REPOSITORY"
             fi
           done
+      - name: Verify the anonymous public download
+        if: github.event.repository.private == false
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="bloom-${BLOOM_TAG#v}.zip"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$BLOOM_TAG"
+          mkdir "$RUNNER_TEMP/public-download"
+          cd "$RUNNER_TEMP/public-download"
+          for file in "$name" "$name.sha256"; do
+            curl --fail --silent --show-error --location --retry 4 --retry-all-errors "$url/$file" --output "$file"
+          done
+          cmp "$name.sha256" "$RUNNER_TEMP/$name.sha256"
+          sha256sum --check "$name.sha256"
