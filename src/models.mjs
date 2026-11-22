@@ -2,11 +2,18 @@ import { BloomError } from './errors.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+// A generation record is { text, complete, model, usage, costUSD }. Usage holds token counts only, in five
+// fields, each a non-negative integer or null. Money is a separate field because it is not a token count.
 export function chatUsage(raw = {}) {
   return { input: count(raw.prompt_tokens), output: count(raw.completion_tokens), total: count(raw.total_tokens),
     cacheRead: count(raw.prompt_tokens_details?.cached_tokens ?? raw.prompt_cache_hit_tokens),
-    cacheWrite: count(raw.cache_creation_input_tokens), costUSD: amount(raw.cost) };
+    cacheWrite: count(raw.cache_creation_input_tokens) };
 }
+
+// A reply without a text body is not a finished response, so it is never complete.
+const record = ({ text, finished, model, usage, costUSD }) => typeof text === 'string'
+  ? { text, complete: finished, model, usage, costUSD }
+  : { text: '', complete: false, model, usage, costUSD };
 
 async function post(url, body, { headers, signal, fetcher }) {
   let response;
@@ -43,8 +50,8 @@ export function createChatProvider({ baseURL = 'https://opencode.ai/inference/op
         { role: 'system', content: system }, { role: 'user', content: prompt },
       ], stream: false }, { signal, fetcher, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} });
       const selected = data?.choices?.[0];
-      return { text: selected?.message?.content, complete: selected?.finish_reason === 'stop',
-        model: data?.model ?? model, usage: chatUsage(data?.usage ?? {}) };
+      return record({ text: selected?.message?.content, finished: selected?.finish_reason === 'stop',
+        model: data?.model ?? model, usage: chatUsage(data?.usage ?? {}), costUSD: amount(data?.usage?.cost) });
     },
   };
 }
@@ -72,11 +79,12 @@ export function createServerProvider({ baseURL, defaultModel, username = 'openco
         const t = info.tokens ?? {};
         const breakdown = [t.input, t.output, t.reasoning, t.cache?.read, t.cache?.write];
         const total = count(t.total) ?? (breakdown.every(n => count(n) !== null) ? breakdown.reduce((a,b) => a+b,0) : null);
-        return { text: Array.isArray(reply?.parts) ? reply.parts.filter(part => part.type === 'text').map(part => part.text).join('') : null,
-          complete: info.role === 'assistant' && !info.error && info.finish === 'stop',
+        const texts = Array.isArray(reply?.parts) ? reply.parts.filter(part => part?.type === 'text').map(part => part.text) : null;
+        return record({ text: texts?.every(part => typeof part === 'string') ? texts.join('') : null,
+          finished: info.role === 'assistant' && !info.error && info.finish === 'stop',
           model: info.modelID ? info.providerID + '/' + info.modelID : model,
           usage: { input: count(t.input), output: count(t.output), total,
-            cacheRead: count(t.cache?.read), cacheWrite: count(t.cache?.write), costUSD: amount(info.cost) } };
+            cacheRead: count(t.cache?.read), cacheWrite: count(t.cache?.write) }, costUSD: amount(info.cost) });
       } finally {
         signal.removeEventListener('abort', abort);
       }
@@ -121,6 +129,6 @@ export const demoProvider = {
         verdict: agent.stage === 'review' ? 'approve' : undefined, folder: role?.folder, revises: previous?.id,
         remember: agent.stage === 'research' && documents.length ? [documents[0].title.slice(0, 120) + ' is a source this team has worked from.'] : undefined };
     }
-    return { text: JSON.stringify(result), complete: true, model: 'demo/scripted', usage: chatUsage() };
+    return { text: JSON.stringify(result), complete: true, model: 'demo/scripted', usage: chatUsage(), costUSD: null };
   },
 };

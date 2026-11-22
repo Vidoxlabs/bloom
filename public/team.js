@@ -245,7 +245,9 @@ export function teamView({ $, node, request, error, state }) {
     if (type === 'team.memory') void refresh().catch(e => error(e.message));
     if (type === 'team.usage') {
       const u = data.usage;
-      const line = data.actor + ' · ' + (data.model || 'Default model') + ' · input ' + display(u.input) + ' · output ' + display(u.output) + ' · cache read ' + display(u.cacheRead) + ' · write ' + display(u.cacheWrite) + ' · USD ' + (u.costUSD == null ? 'unreported' : String(u.costUSD));
+      // Events recorded before 0.6.0 carry the cost inside usage.
+      const cost = data.costUSD ?? u.costUSD;
+      const line = data.actor + ' · ' + (data.model || 'Default model') + ' · input ' + display(u.input) + ' · output ' + display(u.output) + ' · cache read ' + display(u.cacheRead) + ' · write ' + display(u.cacheWrite) + ' · USD ' + (cost == null ? 'unreported' : String(cost));
       usageByActor.set(data.calls, { line, total: u.total });
       const records = [...usageByActor.values()];
       const tokens = records.some(record => Number.isSafeInteger(record.total) && record.total >= 0)

@@ -1,6 +1,6 @@
 {
   "name": "@vidoxlabs/bloom",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A local-first web workspace for agent teams and shared artifacts",
   "type": "module",
   "license": "MIT",

@@ -203,7 +203,8 @@ export class Teams {
       const measured = Number.isSafeInteger(usage.total) && usage.total >= 0;
       if (measured) total += usage.total;
       else missing = true;
-      emit('team.usage', { actor, calls, limit: team.call_limit, model: response.model ?? null, usage,
+      const costUSD = typeof response.costUSD === 'number' && Number.isFinite(response.costUSD) && response.costUSD >= 0 ? response.costUSD : null;
+      emit('team.usage', { actor, calls, limit: team.call_limit, model: response.model ?? null, usage, costUSD,
         measuredTotal: total, incomplete: missing, tokenLimit: team.token_limit });
       check();
       if (response.complete !== true) throw new BloomError('MODEL_INCOMPLETE', 'The model did not finish its response. Downstream work was stopped.');

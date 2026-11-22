@@ -87,7 +87,7 @@ test('bounded calls, missing token counts, provider counts and deterministic log
     if (input.brief === 'Verify only' && input.phase === 'plan') response.text = JSON.stringify({ message: 'Verify files.', agents: [
       { name: 'Evidence clerk', stage: 'verify', charter: 'Verify file hashes.', assignment: 'Check attached material.' },
     ] });
-    if (input.brief === 'Measured') response.usage = { total: 101, input: 75, output: 26, cacheRead: 64, cacheWrite: 0 };
+    if (input.brief === 'Measured') Object.assign(response, { usage: { total: 101, input: 75, output: 26, cacheRead: 64, cacheWrite: 0 }, costUSD: 0.01 });
     return response;
   });
   for (const [options, text, expected] of [[{callLimit:1}, 'Cap', 'limit'], [{tokenLimit:100}, 'Unknown', 'limit'], [{tokenLimit:100}, 'Measured', 'limit'], [{callLimit:1}, 'Verify only','finished']]) {
@@ -96,7 +96,12 @@ test('bounded calls, missing token counts, provider counts and deterministic log
     const { outcome, events } = await run(harness, a.id, { text, files: [file.id] });
     assert.equal(outcome.status, expected);
     assert.equal(events.filter(e => e.type === 'team.call').length, 1);
-    if (text === 'Measured') assert.equal(events.find(e => e.type === 'team.usage').data.usage.cacheRead,64);
+    if (text === 'Measured') {
+      const usage = events.find(e => e.type === 'team.usage').data;
+      assert.equal(usage.usage.cacheRead,64);
+      assert.equal(usage.costUSD,0.01);
+      assert.equal('costUSD' in usage.usage,false);
+    }
   }
 });
 
@@ -113,7 +118,8 @@ test('OpenCode HTTP adapters send the selected model and preserve cache semantic
   assert.equal(consoleResult.usage.total,15);
   assert.equal(consoleResult.usage.cacheRead,2);
   assert.equal(consoleResult.usage.cacheWrite,null);
-  assert.equal(consoleResult.usage.costUSD,null);
+  assert.equal(consoleResult.costUSD,null);
+  assert.equal('costUSD' in consoleResult.usage,false);
   assert.equal(calls[0].url,'https://opencode.ai/inference/openai/v1/chat/completions');
   const server = await createServerProvider({baseURL:'http://127.0.0.1:5555',fetcher}).generate(input);
   assert.equal(server.usage.total,17);
