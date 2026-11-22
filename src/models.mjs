@@ -71,9 +71,10 @@ const demoTeam = [
   { name: 'Reviewer', stage: 'review', title: 'Evidence review', folder: 'Research', charter: 'Check each finding against its source and flag gaps.', message: 'The evidence review is ready for the assembler.' },
   { name: 'Assembler', stage: 'assemble', title: 'Reviewed guide', folder: 'Guides', charter: 'Turn the reviewed findings into a guide.', message: 'The guide is ready to open.' },
 ];
-
 export const demoProvider = {
   label: 'Scripted demo', defaultModel: 'demo/scripted',
+  fixtureMembers: Object.freeze(demoTeam.map(({ name, charter, stage }) =>
+    Object.freeze({ name, charter, stage, voice: 'Plain and specific.', model: null }))),
   async generate({ phase, agent, brief, documents, library = [], teams = [], signal }) {
     signal.throwIfAborted();
     let result;
@@ -83,7 +84,7 @@ export const demoProvider = {
       const agents = demoTeam.map(({ name, stage, charter }) => {
         const saved = library.find(persona => persona.stage === stage);
         if (saved) recruited.push(saved.name);
-        return { name: saved?.name ?? name, stage, charter, voice: 'Plain and specific.', assignment: charter };
+        return { name: saved?.name ?? name, assignment: charter };
       });
       result = { message: recruited.length ? 'I assigned three steps and recruited ' + recruited.join(' and ') + ' from the persona library.' : 'I assigned three steps for this brief.', agents };
       // The scripted head asks another team when the brief names it after "ask".

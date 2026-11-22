@@ -114,7 +114,7 @@ export function teamView({ $, node, request, error, state }) {
       correct.onclick = () => openEditor('correct', note);
       forget.onclick = async () => {
         const id = state.session.id;
-        try { await request(path(id, '/notes/' + note.id), {}, 'DELETE'); await refresh(); }
+        try { await request(path(id, '/notes/' + note.id), { confirmed: true }, 'DELETE'); await refresh(); }
         catch (e) { error(e.message); }
       };
       actions.append(correct, forget); li.append(body, actions); return li;
@@ -128,7 +128,8 @@ export function teamView({ $, node, request, error, state }) {
         button.setAttribute('aria-label', label + ' suggestion: ' + proposal.text);
         button.onclick = async () => {
           const id = state.session.id;
-          try { await request(path(id, '/suggestions/' + proposal.id), {}, method); await refresh(); }
+          const body = method === 'POST' ? { confirmed: true } : {};
+          try { await request(path(id, '/suggestions/' + proposal.id), body, method); await refresh(); }
           catch (e) { error(e.message); }
         };
         actions.append(button);
@@ -191,8 +192,8 @@ export function teamView({ $, node, request, error, state }) {
       if (mode === 'source') {
         const file = await request(path(id, '/sources'), { title: $('source-title').value, text, url: $('source-url').value.trim() });
         if (state.session?.id === id && checked.size < 6) checked.add(file.id);
-      } else if (mode === 'correct') await request(path(id, '/notes/' + correcting.id), { text }, 'PUT');
-      else await request(path(id, '/notes'), { text, kind: $('note-always').checked ? 'rule' : 'fact', shared: $('note-shared').checked });
+      } else if (mode === 'correct') await request(path(id, '/notes/' + correcting.id), { confirmed: true, text }, 'PUT');
+      else await request(path(id, '/notes'), { confirmed: true, text, kind: $('note-always').checked ? 'rule' : 'fact', shared: $('note-shared').checked });
       $('editor').close();
       await refresh();
     } catch (e) { $('editor-error').textContent = e.message; }

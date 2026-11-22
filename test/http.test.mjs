@@ -156,18 +156,56 @@ test('serves the persona library and recruits a persona onto a team', async t =>
 test('serves note kinds, shared notes, Correct, and suggestion Keep and Dismiss', async t => {
   const { send, harness } = setup(t);
   const team = (await send('/api/teams', { method: 'POST', body: { name: 'Desk lead' } })).json();
-  const fact = await send('/api/teams/' + team.id + '/notes', { method: 'POST', body: { text: 'Baseline is 13.', kind: 'fact', shared: true } });
+  const fact = await send('/api/teams/' + team.id + '/notes', { method: 'POST', body: { confirmed: true, text: 'Baseline is 13.', kind: 'fact', shared: true } });
   assert.equal(fact.status, 201);
   assert.deepEqual([fact.json().kind, fact.json().shared], ['fact', true]);
-  assert.equal((await send('/api/teams/' + team.id + '/notes', { method: 'POST', body: { text: 'x', kind: 'odd' } })).json().code, 'TEAM_INPUT');
-  const corrected = await send('/api/teams/' + team.id + '/notes/' + fact.json().id, { method: 'PUT', body: { text: 'Baseline is 14.' } });
+  assert.equal((await send('/api/teams/' + team.id + '/notes', { method: 'POST', body: { confirmed: true, text: 'x', kind: 'odd' } })).json().code, 'TEAM_INPUT');
+  const corrected = await send('/api/teams/' + team.id + '/notes/' + fact.json().id, { method: 'PUT', body: { confirmed: true, text: 'Baseline is 14.' } });
   assert.deepEqual([corrected.json().note.text, corrected.json().note.supersedes], ['Baseline is 14.', fact.json().id]);
   const { epoch } = harness.teams.store.require(team.id);
   for (const text of ['Keep me.', 'Drop me.']) harness.teams.store.propose(team.id, { text, source: 'Researcher', sourceFile: null, epoch });
   const [keep, drop] = (await send('/api/teams/' + team.id)).json().proposals;
-  assert.equal((await send('/api/teams/' + team.id + '/suggestions/' + keep.id, { method: 'POST', body: {} })).json().text, 'Keep me.');
+  assert.equal((await send('/api/teams/' + team.id + '/suggestions/' + keep.id, { method: 'POST', body: { confirmed: true } })).json().text, 'Keep me.');
   assert.deepEqual((await send('/api/teams/' + team.id + '/suggestions/' + drop.id, { method: 'DELETE', body: {} })).json(), { dismissed: true });
   const detail = (await send('/api/teams/' + team.id)).json();
   assert.deepEqual(detail.notes.map(n => n.text), ['Keep me.', 'Baseline is 14.']);
   assert.deepEqual(detail.proposals, []);
+});
+
+test('note writes check origin and team presence before requiring literal confirmation', async t => {
+  const { send, harness } = setup(t);
+  const absentId = '00000000-0000-4000-8000-000000000000';
+  const absent = '/api/teams/' + absentId + '/notes';
+  const crossOrigin = await send(absent, { method: 'POST', headers: { origin: 'null' }, body: {} });
+  assert.equal(crossOrigin.status, 403);
+  assert.equal(crossOrigin.json().code, 'ORIGIN_MISMATCH');
+  const missingTeam = await send(absent, { method: 'POST', body: {} });
+  assert.equal(missingTeam.status, 404);
+  assert.equal(missingTeam.json().code, 'TEAM_NOT_FOUND');
+  const missingTurn = await send('/api/sessions/' + absentId + '/turns', { method: 'POST', body: { text: 'Check the draft.' } });
+  assert.equal(missingTurn.status, 404);
+  assert.equal(missingTurn.json().code, 'SESSION_NOT_FOUND');
+  assert.equal(harness.active.size, 0);
+
+  const team = (await send('/api/teams', { method: 'POST', body: {} })).json();
+  const prefix = '/api/teams/' + team.id;
+  const note = harness.teams.note(team.id, { text: 'Original note.' });
+  const { epoch } = harness.teams.store.require(team.id);
+  harness.teams.store.propose(team.id, { text: 'Draft note.', source: 'Researcher', sourceFile: null, epoch });
+  const before = (await send(prefix)).json();
+  const attempts = [
+    ['/notes', 'POST', { text: 'New note.' }],
+    ['/notes/' + note.id, 'PUT', { text: 'New wording.', confirmed: 'true' }],
+    ['/notes/' + note.id, 'DELETE', { confirmed: false }],
+    ['/suggestions/' + before.proposals[0].id, 'POST', {}],
+  ];
+  for (const [path, method, body] of attempts) {
+    const response = await send(prefix + path, { method, body });
+    assert.equal(response.status, 422, method + ' ' + path);
+    assert.equal(response.json().code, 'CONFIRMATION_REQUIRED');
+  }
+  assert.deepEqual((await send(prefix)).json(), before);
+  const forgotten = await send(prefix + '/notes/' + note.id, { method: 'DELETE', body: { confirmed: true } });
+  assert.deepEqual(forgotten.json(), { forgotten: true });
+  assert.deepEqual((await send(prefix)).json().notes, []);
 });

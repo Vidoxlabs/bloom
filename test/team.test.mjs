@@ -7,10 +7,10 @@ import { Harness } from '../src/harness.mjs';
 import { Store } from '../src/store.mjs';
 import { demoProvider, createChatProvider } from '../src/models.mjs';
 
-function setup(t, generate = demoProvider.generate) {
+function setup(t, generate = demoProvider.generate, adapter = demoProvider) {
   const dataDirectory = mkdtempSync(join(tmpdir(), 'bloom-team-'));
   const store = new Store(dataDirectory), calls = [];
-  const provider = { ...demoProvider, generate: async input => { calls.push(input); return generate(input); } };
+  const provider = { ...adapter, generate: async input => { calls.push(input); return generate(input); } };
   const harness = new Harness({ store, dataDirectory, adapters: [], teamProvider: provider });
   t.after(async () => { await harness.close(); store.close(); rmSync(dataDirectory, { recursive: true, force: true }); });
   return { harness, store, calls, teams: harness.teams, dataDirectory };
@@ -90,6 +90,7 @@ test('bounded calls, missing token counts, provider counts and deterministic log
     if (input.brief === 'Measured') Object.assign(response, { usage: { total: 101, input: 75, output: 26, cacheRead: 64, cacheWrite: 0 }, costUSD: 0.01 });
     return response;
   });
+  teams.createPersona({ name: 'Evidence clerk', stage: 'verify', charter: 'Verify file hashes.' });
   for (const [options, text, expected] of [[{callLimit:1}, 'Cap', 'limit'], [{tokenLimit:100}, 'Unknown', 'limit'], [{tokenLimit:100}, 'Measured', 'limit'], [{callLimit:1}, 'Verify only','finished']]) {
     const a = teams.create(options);
     const file = await teams.source(a.id, { title:'Evidence', text:'Original' });
@@ -187,7 +188,8 @@ test('specialists revise, rename and file supplied desktop files as hash-linked 
   assert.deepEqual(teams.store.history(b.id, guide.id).map(f => [f.id, f.revision]), [[guide.id, 1], [revised.id, 2]]);
   assert.equal(teams.store.read(a.id, guide.id).revision, 1, 'earlier revisions stay readable');
 
-  const plan = { message: 'Filing the desktop.', agents: [{ name: 'Organizer', stage: 'work', charter: 'Keep the desktop tidy.', voice: 'Brief.', assignment: 'File the notes.' }], readFiles: [source.id] };
+  teams.createPersona({ name: 'Organizer', stage: 'work', charter: 'Keep the desktop tidy.', voice: 'Brief.' });
+  const plan = { message: 'Filing the desktop.', agents: [{ name: 'Organizer', assignment: 'File the notes.' }], readFiles: [source.id] };
   const organized = (extra) => ({ message: 'Filed.', title: 'Filing log', document: 'Moved the notes.', ...extra });
   script = { plan, work: () => organized({ moves: [{ file: source.id, folder: 'Sources/Client', title: 'Client notes' }] }) };
   const third = await run(harness, a.id, {});
@@ -259,6 +261,41 @@ test('a persona library lets any head recruit saved specialists with their own i
   teams.deletePersona(quill.id);
   assert.deepEqual(teams.personas().map(p => p.name), ['Iris']);
   assert.deepEqual(teams.detail(b.id).members.map(m => m.name), ['Quill'], 'deleting a persona leaves existing teams unchanged');
+});
+
+test('a configured model can assign saved specialists and drops unknown names, including demo names', async t => {
+  const planned = name => ({ name, charter: 'Provider-supplied jurisdiction.', voice: 'Provider-supplied voice.', stage: 'work', assignment: 'Check the draft.' });
+  let agents = ['Researcher', 'Invented', 'Iris', 'Quill'].map(planned);
+  const provider = createChatProvider({
+    baseURL: 'http://127.0.0.1:4317/v1', defaultModel: 'test-model',
+    fetcher: async (_url, { body }) => {
+      const { messages } = JSON.parse(body);
+      const planning = 'library' in JSON.parse(messages[1].content);
+      const content = planning ? { message: 'I have a plan.', agents } : { message: 'Draft checked.', title: 'Checks', document: 'Checked the draft.', verdict: 'approve' };
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }] });
+    },
+  });
+  const { teams, harness, calls } = setup(t, provider.generate, provider);
+  const team = teams.create({});
+  const iris = teams.createPersona({ name: 'Iris', charter: 'Read primary sources.', stage: 'research', model: 'review-model' });
+  const quill = teams.createPersona({ name: 'Quill', charter: 'Review evidence.', stage: 'review' });
+  teams.recruit(team.id, { persona: quill.id });
+  teams.deletePersona(quill.id);
+
+  const result = await run(harness, team.id);
+  assert.equal(result.outcome.status, 'finished');
+  assert.deepEqual(result.posts[0].assignments.map(a => a.name), ['Iris', 'Quill']);
+  assert.deepEqual(result.posts.slice(1).map(p => p.author), ['Iris', 'Quill']);
+  assert.deepEqual(calls.slice(1).map(c => [c.agent.name, c.agent.charter, c.agent.voice, c.agent.stage]),
+    [[iris.name, iris.charter, iris.voice, iris.stage], [quill.name, quill.charter, quill.voice, quill.stage]]);
+  assert.equal(calls[1].model, iris.model);
+  assert.deepEqual(teams.detail(team.id).members.map(m => m.name), ['Quill', 'Iris']);
+
+  agents = ['Researcher', 'Invented'].map(planned);
+  const absent = await run(harness, team.id);
+  assert.equal(absent.outcome.code, 'TEAM_ROSTER_UNAVAILABLE');
+  assert.deepEqual(absent.posts, []);
+  assert.equal(calls.length, 4);
 });
 
 test('team memory ranks confirmed notes, keeps agent suggestions unconfirmed, and corrects or forgets across teams', async t => {

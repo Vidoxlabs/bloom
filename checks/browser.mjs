@@ -20,7 +20,7 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.getByRole('button',{name:'Close',exact:true}).click();
   await page.getByRole('button',{name:'Create a team',exact:true}).click();
   assert.equal(await page.locator('#kind').inputValue(),'team');
-  for (const [label, hint] of [['Head agent name','Plans the work and creates specialists for it.'],['Jurisdiction','What this agent is responsible for.']]) {
+  for (const [label, hint] of [['Head agent name','Plans the work and assigns it to specialists.'],['Jurisdiction','What this agent is responsible for.']]) {
     assert.equal(await page.locator('#session-form').getByLabel(label,{exact:true}).evaluate(field => document.getElementById(field.getAttribute('aria-describedby')).textContent),hint);
   }
   await page.getByLabel('Head agent name',{exact:true}).fill('Desk lead');
@@ -160,6 +160,9 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
   await page.getByLabel('What should the team remember instead?').fill('Write in American English.');
   await noteForm.getByRole('button',{name:'Save',exact:true}).click();
   await page.locator('#notes li',{hasText:'Write in American English.'}).getByText('Always used · Corrected').waitFor();
+  const forgottenNote = page.locator('#notes li',{hasText:'Invoices go to the finance inbox.'});
+  await forgottenNote.getByRole('button',{name:'Forget',exact:true}).click();
+  await forgottenNote.waitFor({state:'detached'});
 
   // Team to team: the second desk asks Desk lead a question and both conversations show it.
   await page.getByLabel('Message').fill('Ask Desk lead before starting.');

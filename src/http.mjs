@@ -32,6 +32,15 @@ async function readBody(request) {
   }
 }
 
+async function readConfirmedNoteWrite(request, teams, id) {
+  teams.store.require(id);
+  const body = await readBody(request);
+  if (body.confirmed !== true) {
+    throw new BloomError('CONFIRMATION_REQUIRED', 'Confirm this change to the team’s saved notes.', 422);
+  }
+  return body;
+}
+
 function json(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(body));
@@ -106,24 +115,32 @@ export function createHandler(harness) {
       const teamPath = /^\/api\/teams\/([0-9a-f-]{36})(?:\/(sources|notes|suggestions|files|members)(?:\/([0-9a-f-]{36}))?)?$/.exec(pathname);
       if (teamPath) {
         const [, id, kind, item] = teamPath;
-        if (method === 'GET' && !kind) return json(response, 200, harness.teams.detail(id));
-        if (method === 'POST' && kind === 'sources' && !item) return json(response, 201, await harness.teams.source(id, await readBody(request)));
-        if (method === 'POST' && kind === 'notes' && !item) return json(response, 201, harness.teams.note(id, await readBody(request)));
-        if (method === 'POST' && kind === 'members' && !item) return json(response, 200, harness.teams.recruit(id, await readBody(request)));
-        if (method === 'PUT' && kind === 'notes' && item) return json(response, 200, harness.teams.correct(id, item, await readBody(request)));
-        if (method === 'POST' && kind === 'suggestions' && item) { await readBody(request); return json(response, 200, harness.teams.keep(id, item)); }
-        if (method === 'DELETE' && kind === 'suggestions' && item) { await readBody(request); return json(response, 200, harness.teams.dismiss(id, item)); }
+        const { teams } = harness;
+        if (method === 'GET' && !kind) return json(response, 200, teams.detail(id));
+        if (method === 'POST' && kind === 'sources' && !item) return json(response, 201, await teams.source(id, await readBody(request)));
+        if (method === 'POST' && kind === 'notes' && !item) {
+          return json(response, 201, teams.note(id, await readConfirmedNoteWrite(request, teams, id)));
+        }
+        if (method === 'POST' && kind === 'members' && !item) return json(response, 200, teams.recruit(id, await readBody(request)));
+        if (method === 'PUT' && kind === 'notes' && item) {
+          return json(response, 200, teams.correct(id, item, await readConfirmedNoteWrite(request, teams, id)));
+        }
+        if (method === 'POST' && kind === 'suggestions' && item) {
+          await readConfirmedNoteWrite(request, teams, id);
+          return json(response, 200, teams.keep(id, item));
+        }
+        if (method === 'DELETE' && kind === 'suggestions' && item) { await readBody(request); return json(response, 200, teams.dismiss(id, item)); }
         if (method === 'DELETE' && kind === 'notes' && item) {
-          await readBody(request);
-          return json(response, 200, harness.teams.forget(id, item));
+          await readConfirmedNoteWrite(request, teams, id);
+          return json(response, 200, teams.forget(id, item));
         }
         if (method === 'GET' && kind === 'files' && item) {
-          const file = harness.teams.store.read(id, item);
+          const file = teams.store.read(id, item);
           if (url.searchParams.has('download')) {
             response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': 'attachment; filename="' + file.filename + '"' });
             return response.end(file.text);
           }
-          return json(response, 200, { ...file, history: harness.teams.store.history(id, item) });
+          return json(response, 200, { ...file, history: teams.store.history(id, item) });
         }
       }
       if (pathname === '/api/sessions') {
