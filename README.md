@@ -2,6 +2,10 @@
 
 Give a head agent a brief and watch a team work through it in one group conversation. Specialists can research public sources, review the findings, and assemble a Markdown guide. Each contribution is a file on a shared desktop that you can open, attach to another task, or download.
 
+[Download the latest release](https://github.com/Vidoxlabs/bloom/releases/latest) · [View the phone layout](docs/previews/phone.png)
+
+![Bloom’s scripted research team sharing its findings, review and guide in one workspace](docs/previews/workspace.png)
+
 ## Try it
 
 Download the source from GitHub and extract it, or clone this repository. Install Node.js 22.13 or newer and run this command from the project folder in a terminal on macOS, Linux, or Windows. The app has no npm runtime dependencies.
