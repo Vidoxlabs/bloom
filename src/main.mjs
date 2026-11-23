@@ -27,8 +27,15 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
 }
 
 const dataDirectory = dataPath(values['data-dir'], values.demo);
-const providers = selectProviders({ demo: values.demo, baseURL: values['api-base'], model: values['team-model'] });
-const store = new Store(dataDirectory);
+let selection;
+try {
+  selection = selectProviders({ demo: values.demo, baseURL: values['api-base'], model: values['team-model'] });
+} catch {
+  console.error('Bloom could not use the configured model provider.');
+  process.exit(1);
+}
+const { redact, ...providers } = selection;
+const store = new Store(dataDirectory, { redact });
 const harness = new Harness({
   store, dataDirectory, ...providers,
   defaultWorkspace: values.workspace ? resolve(values.workspace) : '',

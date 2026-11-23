@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { networkInterfaces, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -17,15 +17,22 @@ function fixture(t) {
   return directory;
 }
 function command(directory, args, extra = {}) {
-  return spawnSync(process.execPath, [...(extra.preload ? ['--import', extra.preload] : []), bin, ...args, '--data-dir', directory],
+  return spawnSync(process.execPath, ['--import', extra.preload ?? noFetch, bin, ...args, '--data-dir', directory],
     { encoding: 'utf8', timeout: 5000, input: extra.input });
 }
 const parse = stdout => stdout.trim().split('\n').map(line => JSON.parse(line));
 const result = stdout => parse(stdout).at(-1);
 const preload = source => 'data:text/javascript,' + encodeURIComponent(source);
-const localAddress = Object.values(networkInterfaces()).flat().find(address => address.internal && address.family === 'IPv4').address;
-const base = 'http://' + localAddress;
-const model = ['--api-base', base, '--model', 'fixture'];
+const marker = 'bloom-private-endpoint-canary';
+const base = 'https://' + marker + '.invalid/v1';
+const noFetch = preload("globalThis.fetch = () => { throw Error('Unexpected fetch'); };");
+function configure(directory, overrides = {}, backendModel = 'fixture-backend') {
+  writeFileSync(join(directory, 'config.json'), JSON.stringify({
+    version: 1,
+    providers: { lab: { kind: 'chat-completions', baseURL: base, locality: 'local', ...overrides } },
+    models: { aliases: [{ alias: 'fixture', backendModel, workload: 'code' }], default: 'fixture' },
+  }), { mode: 0o600 });
+}
 const draft = { message: 'I assigned the fixture.', agents: [{ name: 'Researcher', assignment: 'Read the supplied fixture.' }] };
 const noUsage = preload(`
   globalThis.fetch = async () => Response.json({
@@ -67,19 +74,21 @@ test('headless run reports missing provider and missing counts truthfully', t =>
   const directory = fixture(t);
   const absent = command(directory, ['run', '--headless', '--json', 'Task']);
   assert.equal(absent.status, 1, absent.stderr);
-  assert.match(absent.stderr, /--api-base/);
+  assert.match(absent.stderr, /config\.json.*--data-dir/);
   assert.equal(result(absent.stdout).exitCode, 1);
+  configure(directory);
   addSpecialist(directory);
-  const run = command(directory, ['run', '--headless', '--json', '--token-limit', '10', ...model, 'Task'], { preload: noUsage });
+  const run = command(directory, ['run', '--headless', '--json', '--token-limit', '10', 'Task'], { preload: noUsage });
   assert.equal(run.status, 4, run.stderr);
   assert.equal(result(run.stdout).usage, null);
-  const plain = command(directory, ['run', '--headless', '--token-limit', '10', ...model, 'Task'], { preload: noUsage });
+  const plain = command(directory, ['run', '--headless', '--token-limit', '10', 'Task'], { preload: noUsage });
   assert.equal(plain.status, 4, plain.stderr);
   assert.match(plain.stdout, /unreported/);
 });
 
 test('call and measured token limits exit 4 after only one provider call', t => {
   const directory = fixture(t);
+  configure(directory);
   addSpecialist(directory);
   const fake = preload(`
     let calls = 0;
@@ -92,7 +101,7 @@ test('call and measured token limits exit 4 after only one provider call', t => 
     };
   `);
   for (const limits of [['--max-calls', '1'], ['--token-limit', '7']]) {
-    const run = command(directory, ['run', '--headless', '--json', ...model, ...limits, 'Task'], { preload: fake });
+    const run = command(directory, ['run', '--headless', '--json', ...limits, 'Task'], { preload: fake });
     assert.equal(run.status, 4, run.stderr);
     assert.equal(result(run.stdout).status, 'limit');
     assert.equal(result(run.stdout).usage.total, 9);
@@ -165,23 +174,101 @@ test('interrupt during interactive demo cancels the pending permission', { skip:
   } finally { store.close(); }
 });
 
-test('doctor distinguishes unchecked items and uses the injected model catalog', t => {
+test('doctor distinguishes unchecked model checks and a configured provider', t => {
   const directory = fixture(t);
   const unconfigured = command(directory, ['doctor', '--json']);
   assert.equal(unconfigured.status, 0, unconfigured.stderr);
   assert.equal(JSON.parse(unconfigured.stdout).find(row => row.check === 'Endpoint rule').status, 'unknown');
-  const fake = preload(`
-    globalThis.fetch = async (url, request) => {
-      if (!url.endsWith('/models') || request.redirect !== 'error' || !request.signal) throw Error('Wrong request');
-      return Response.json({ data: [] });
-    };
-  `);
-  const checked = command(directory, ['doctor', '--json', '--probe', '--api-base', base], { preload: fake });
+  configure(directory);
+  const checked = command(directory, ['doctor', '--json']);
   assert.equal(checked.status, 0, checked.stderr);
   const checks = JSON.parse(checked.stdout);
   assert.equal(checks.find(row => row.check === 'SQLite').status, 'pass');
-  assert.equal(checks.find(row => row.check === 'Model catalog').status, 'pass');
+  assert.equal(checks.find(row => row.check === 'Endpoint rule').status, 'pass');
   assert.equal(checks.find(row => row.check === 'TTY').status, 'unknown');
+});
+
+test('terminal renderers, doctor, export and persisted events hide the configured address', t => {
+  const directory = fixture(t);
+  configure(directory);
+  addSpecialist(directory);
+  const fake = preload(`
+    const marker = ${JSON.stringify(marker)};
+    const base = ${JSON.stringify(base)};
+    globalThis.fetch = async (url, request) => {
+      if (url !== base + '/chat/completions') throw Error('Wrong model request');
+      const { model, messages } = JSON.parse(request.body);
+      if (model !== 'fixture-backend' || JSON.stringify(messages).includes(marker)) throw Error('Input was not guarded');
+      return Response.json({ model: marker + '.invalid', choices: [{
+        finish_reason: 'stop', message: { content: JSON.stringify({
+          message: 'Prepared a response for ' + base,
+          agents: [{ name: 'Researcher', assignment: 'Read the supplied fixture.' }],
+          title: 'Fixture findings', document: 'The reply included ' + marker + '.invalid.',
+        }) },
+      }] });
+    };
+  `);
+  const assertClean = output => {
+    assert.ok(!output.stdout.includes(marker));
+    assert.ok(!output.stderr.includes(marker));
+  };
+  for (const options of [[], ['--json']]) {
+    const run = command(directory, ['run', '--headless', ...options, 'Inspect ' + base], { preload: fake });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /redacted endpoint/i);
+    assertClean(run);
+    const diagnosis = command(directory, ['doctor', ...options]);
+    assert.equal(diagnosis.status, 0, diagnosis.stderr);
+    assert.match(diagnosis.stdout, /lab.*local, user-marked/);
+    assertClean(diagnosis);
+  }
+  const failed = command(directory, ['run', '--headless', '--json', 'Try a failing provider'], {
+    preload: preload('globalThis.fetch = () => { throw Error(' + JSON.stringify('Connection refused at ' + base) + '); };'),
+  });
+  assert.equal(failed.status, 1, failed.stderr);
+  assert.match(failed.stderr, /lab.*local, user-marked/);
+  assertClean(failed);
+  const list = command(directory, ['sessions', 'list', '--json']);
+  assertClean(list);
+  const store = new Store(directory);
+  try {
+    for (const session of JSON.parse(list.stdout)) {
+      assert.ok(!JSON.stringify(store.eventsAfter(session.id, 0)).includes(marker));
+      const shown = command(directory, ['sessions', 'show', session.id]);
+      assert.equal(shown.status, 0, shown.stderr);
+      assertClean(shown);
+      const exported = command(directory, ['sessions', 'export', session.id, '--jsonl']);
+      assert.equal(exported.status, 0, exported.stderr);
+      assertClean(exported);
+      const file = join(directory, 'session.jsonl');
+      writeFileSync(file, exported.stdout);
+      for (const options of [[], ['--json']]) {
+        const replay = command(directory, ['replay', file, ...options]);
+        assert.equal(replay.status, 0, replay.stderr);
+        assertClean(replay);
+      }
+    }
+  } finally {
+    store.close();
+  }
+});
+
+test('terminal config refuses cloud, permits opted-in local HTTP, and refuses unknown aliases', t => {
+  const directory = fixture(t);
+  const args = ['run', '--headless', '--json', 'Inspect the fixture'];
+  configure(directory, { locality: undefined });
+  assert.equal(command(directory, args).status, 3);
+  configure(directory, {}, 'fixture-cloud');
+  assert.equal(command(directory, args).status, 3);
+  configure(directory, { baseURL: base.replace('https:', 'http:') });
+  assert.equal(command(directory, args).status, 2);
+  configure(directory, { baseURL: base.replace('https:', 'http:'), allowInsecureHttp: true });
+  const checked = command(directory, ['doctor', '--json']);
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.match(checked.stdout, /unencrypted/i);
+  const unknown = command(directory, [...args, '--model', 'unregistered']);
+  assert.equal(unknown.status, 2, unknown.stderr);
+  assert.match(unknown.stderr, /alias/i);
 });
 
 test('help and version work for every subcommand without opening a store', t => {

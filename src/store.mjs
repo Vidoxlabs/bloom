@@ -3,11 +3,13 @@ import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { BloomError } from './errors.mjs';
+import { redactValue } from './endpoint-privacy.mjs';
 
 const now = () => new Date().toISOString();
 
 export class Store {
-  constructor(directory) {
+  constructor(directory, { redact } = {}) {
+    this.redact = redact;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, 'vibloom.sqlite');
     closeSync(openSync(path, 'a', 0o600));
@@ -73,6 +75,7 @@ export class Store {
   }
 
   event(sessionId, turnId, type, data) {
+    if (this.redact) data = redactValue(data, this.redact);
     const at = now();
     const result = this.db.prepare('INSERT INTO events (session_id, turn_id, type, data, at) VALUES (?, ?, ?, ?, ?)')
       .run(sessionId, turnId, type, JSON.stringify(data), at);

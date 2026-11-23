@@ -83,7 +83,8 @@ export class Harness {
   }
 
   start(sessionId, request) {
-    const { text, model } = request;
+    const { model } = request;
+    const text = this.store.redact ? this.store.redact(request.text) : request.text;
     if (this.closing) throw new BloomError('HARNESS_CLOSING', 'Bloom is closing.', 503);
     if (typeof text !== 'string' || !text.trim() || text.length > 32_000) {
       throw new BloomError('PROMPT_INVALID', 'Enter a prompt of 1 to 32,000 characters.', 400);

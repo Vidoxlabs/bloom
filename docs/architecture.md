@@ -4,7 +4,7 @@ Bloom runs as one Node.js webserver with an embedded SQLite database, a director
 
 ## Terminal shell
 
-**Implemented.** The terminal shell shares the team loop, demo adapter, provider selection and SQLite event stream with the browser. Headless JSON ends with an unstored `run.result` record. Missing usage stays unreported. Session exports mask the stored workspace path. File replay reads the exported events without opening a store or starting a runtime.
+**Implemented.** The terminal shell shares the team loop, demo adapter, provider selection and SQLite event stream with the browser. Headless JSON ends with an unstored `run.result` record. Missing usage stays unreported. The terminal reads provider addresses from its private data directory configuration. A configured address is masked before events are stored or rendered. Session exports also mask the stored workspace path. File replay reads the exported events without opening a store or starting a runtime.
 
 ## The shared computer
 

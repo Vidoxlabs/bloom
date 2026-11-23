@@ -1,4 +1,5 @@
 import { BloomError } from './errors.mjs';
+import { endpointRedactor } from './endpoint-privacy.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -15,44 +16,58 @@ const record = ({ text, finished, model, usage, costUSD }) => typeof text === 's
   ? { text, complete: finished, model, usage, costUSD }
   : { text: '', complete: false, model, usage, costUSD };
 
-async function post(url, body, { headers, signal, fetcher }) {
+async function post(url, body, { headers, signal, fetcher, label }) {
   let response;
   try {
     response = await fetcher(url, { method: 'POST', redirect: 'error', signal,
       headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
   } catch (error) {
     if (signal.aborted) throw signal.reason;
-    throw new BloomError('PROVIDER_OFFLINE', 'Could not connect to the configured model endpoint.');
+    throw new BloomError('PROVIDER_OFFLINE', 'Could not connect to ' + label + '.');
   }
-  if (!response.ok) throw new BloomError('PROVIDER_REJECTED', 'The model endpoint returned HTTP ' + response.status + '. Check the model, server version and credentials.');
+  if (!response.ok) throw new BloomError('PROVIDER_REJECTED', label + ' returned HTTP ' + response.status + '. Check the model, server version and credentials.');
   try { return await response.json(); }
-  catch { throw new BloomError('PROVIDER_RESPONSE', 'The model endpoint returned an unreadable response.'); }
+  catch { throw new BloomError('PROVIDER_RESPONSE', label + ' returned an unreadable response.'); }
 }
 
-export function inspectEndpoint(value) {
-  const url = new URL(value);
+export function inspectEndpoint(value, { locality, allowInsecureHttp = false } = {}) {
+  const rule = 'Use HTTPS, or opt in to HTTP for a user-marked local provider.';
+  let url;
+  try { url = new URL(value); }
+  catch { throw new Error(rule); }
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-  if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
-    throw new Error('Use an HTTPS model URL, or HTTP on loopback. Supply credentials through the environment.');
+  const localProvider = locality === undefined ? local : locality === 'local';
+  const http = url.protocol === 'http:';
+  if (url.username || url.password || url.search || url.hash ||
+      (url.protocol !== 'https:' && !(http && (local || (localProvider && allowInsecureHttp))))) {
+    throw new Error(rule);
   }
-  return { base: url.href.replace(/\/$/, ''), local };
+  const description = !localProvider ? 'cloud' : locality === 'local' ? 'local, user-marked' : 'local, loopback';
+  return { base: url.href.replace(/\/$/, ''), local: localProvider, description, unencrypted: http && !local };
 }
 
 // A chat-completions endpoint is one provider behind seed's provider seam. Any service that speaks
 // POST {base}/chat/completions works; Bloom names no default service and sends no key it was not given.
-export function createChatProvider({ baseURL, apiKey, defaultModel, fetcher = fetch } = {}) {
+export function createChatProvider({
+  baseURL, apiKey, defaultModel, fetcher = fetch, locality, allowInsecureHttp, terminal = false,
+  label = 'the configured model endpoint', redact,
+} = {}) {
   if (!baseURL) throw new Error('Choose a model endpoint with --api-base.');
-  const { base } = inspectEndpoint(baseURL);
+  const { base } = inspectEndpoint(baseURL, { locality, allowInsecureHttp });
+  redact ??= endpointRedactor(baseURL);
   return {
-    label: 'Chat completions API', defaultModel,
+    label: terminal ? label : 'Chat completions API', defaultModel,
     async generate({ system, prompt, model, signal }) {
       if (!model) throw new BloomError('MODEL_REQUIRED', 'Choose a model ID for the team.', 400);
+      if (terminal && /-cloud$/i.test(model)) {
+        throw new BloomError('EGRESS_REFUSED', 'Cloud models are unavailable in the terminal shell.');
+      }
       const data = await post(base + '/chat/completions', { model, messages: [
         { role: 'system', content: system }, { role: 'user', content: prompt },
-      ], stream: false }, { signal, fetcher, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} });
+      ], stream: false }, { signal, fetcher, label, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} });
       const selected = data?.choices?.[0];
-      return record({ text: selected?.message?.content, finished: selected?.finish_reason === 'stop',
-        model: data?.model ?? model, usage: chatUsage(data?.usage ?? {}), costUSD: amount(data?.usage?.cost) });
+      return record({ text: redact(selected?.message?.content), finished: selected?.finish_reason === 'stop',
+        model: redact(data?.model ?? model), usage: chatUsage(data?.usage ?? {}), costUSD: amount(data?.usage?.cost) });
     },
   };
 }

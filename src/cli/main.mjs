@@ -5,8 +5,8 @@ import { parseArgs } from 'node:util';
 import { dataPath } from '../data-dir.mjs';
 import { BloomError } from '../errors.mjs';
 import { Harness, workspacePath } from '../harness.mjs';
-import { inspectEndpoint } from '../models.mjs';
 import { Store } from '../store.mjs';
+import { readTerminalProvider, terminalModel } from './config.mjs';
 import { doctor } from './doctor.mjs';
 import { selectProviders } from './providers.mjs';
 import { lineRenderer } from './render/line.mjs';
@@ -18,20 +18,19 @@ import { runResult, runTurn } from './turn.mjs';
 const string = { type: 'string' };
 const flag = { type: 'boolean' };
 const common = { help: { ...flag, short: 'h' }, version: { ...flag, short: 'v' }, 'data-dir': string };
-const providerFlags = { model: string, 'api-base': string };
-const sharedRun = { ...providerFlags, workspace: string, demo: flag };
+const sharedRun = { model: string, workspace: string, demo: flag };
 const commands = {
   chat: { ...sharedRun, team: string },
   run: { ...sharedRun, headless: flag, json: flag, 'max-calls': string, 'token-limit': string, 'approve-policy': string, 'output-last-message': string },
-  doctor: { ...providerFlags, json: flag, probe: flag },
+  doctor: { json: flag },
   sessions: { json: flag, jsonl: flag, out: string },
   replay: { json: flag, step: flag },
   memory: { team: string, text: string, confirm: flag },
 };
 const help = {
-  chat: 'bloom chat [--team NAME] [--model ID] [--workspace PATH] [--api-base URL] [--demo]',
-  run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ID] [--api-base URL] [--workspace PATH] [--demo]',
-  doctor: 'bloom doctor [--json] [--api-base URL] [--probe]',
+  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo]',
+  run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo]',
+  doctor: 'bloom doctor [--json]',
   sessions: 'bloom sessions list [--json] | show ID [--json] | export ID --jsonl [--out FILE]',
   replay: 'bloom replay FILE [--json] [--step]',
   memory: 'bloom memory list --team NAME | keep ID | correct ID --text TEXT | forget ID --confirm',
@@ -76,15 +75,15 @@ function attachReader() {
   return async () => (await iterator.next()).value ?? null;
 }
 
-function openStore() {
-  store ??= new Store(directory);
+function openStore(redact) {
+  store ??= new Store(directory, { redact });
   return store;
 }
 
-function openHarness(values = {}, workspace = '') {
+function openHarness(settings = {}, workspace = '') {
+  const { redact, ...providers } = selectProviders(settings);
   harness = new Harness({
-    store: openStore(), dataDirectory: directory, defaultWorkspace: workspace,
-    ...selectProviders({ demo: values.demo, model: values.model, baseURL: values['api-base'] }),
+    store: openStore(redact), dataDirectory: directory, defaultWorkspace: workspace, ...providers,
   });
   return harness;
 }
@@ -108,16 +107,9 @@ function completion(result, message, json) {
   return result.exitCode;
 }
 
-function providerProblem(values) {
-  if (values.demo) return null;
-  if (!values['api-base']) return { status: 'failed', code: 'PROVIDER_UNCONFIGURED', message: 'Set a local model endpoint with --api-base.' };
-  let endpoint;
-  try { endpoint = inspectEndpoint(values['api-base']); }
-  catch { usage('Use HTTPS, or HTTP on loopback. Supply credentials through the environment.'); }
-  if (!endpoint.local || /-cloud$/i.test(values.model ?? process.env.BLOOM_MODEL ?? '')) {
-    return { status: 'refused', code: 'EGRESS_REFUSED', message: 'Choose a local model. Terminal cloud approval is unavailable.' };
-  }
-  return null;
+function cloudRefusal(provider) {
+  if (provider) return 'Cloud access for ' + provider.label + ' is unavailable in the terminal shell.';
+  return 'Cloud models are unavailable in the terminal shell.';
 }
 
 async function promptText(argument) {
@@ -145,24 +137,26 @@ async function runCommand(action, args, values) {
   } else {
     noExtras(args);
   }
-  const problem = providerProblem(values);
-  if (!headless && !problem) nextLine = attachReader();
+  const provider = values.demo ? null : readTerminalProvider(directory);
+  const configured = values.demo || provider?.local;
+  if (!headless && configured) nextLine = attachReader();
   const streams = { stdout, headless, nextLine, policy };
   renderer = values.json ? jsonRenderer(streams) : lineRenderer(streams);
-  if (problem) return completion(runResult(problem.status, problem.code), problem.message, values.json);
+  if (!configured) {
+    return provider
+      ? completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(provider), values.json)
+      : completion(runResult('failed', 'PROVIDER_UNCONFIGURED'),
+        'Set a provider in config.json under --data-dir, or choose --demo.', values.json);
+  }
+  const model = provider ? terminalModel(provider, values.model) : values.model;
+  if (provider && /-cloud$/i.test(model)) {
+    return completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(), values.json);
+  }
   const workspace = values.workspace ? workspacePath(resolve(values.workspace)) : '';
-  openHarness(values, workspace);
-  const session = values.demo ? harness.createSession({ model: values.model }) : teamSession(values.team, workspace, values.model, limits);
-  // Terminal calls are local in this phase, including the model chosen by a saved specialist.
-  const generate = harness.teams.provider.generate.bind(harness.teams.provider);
-  harness.teams.provider.generate = input => {
-    if (!values.demo && /-cloud$/i.test(input.model ?? '')) {
-      throw new BloomError('EGRESS_REFUSED', 'Choose a local model. Terminal cloud approval is unavailable.');
-    }
-    return generate(input);
-  };
+  openHarness({ ...provider, demo: values.demo, model, terminal: true }, workspace);
+  const session = values.demo ? harness.createSession({ model }) : teamSession(values.team, workspace, model, limits);
   const turn = async text => {
-    const { result, message } = await runTurn(harness, session, { text, model: values.model },
+    const { result, message } = await runTurn(harness, session, { text, model },
       renderer, controls, values['output-last-message']);
     return completion(result, message, values.json);
   };
