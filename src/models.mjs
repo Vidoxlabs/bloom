@@ -29,20 +29,20 @@ async function post(url, body, { headers, signal, fetcher }) {
   catch { throw new BloomError('PROVIDER_RESPONSE', 'The model endpoint returned an unreadable response.'); }
 }
 
-function endpoint(value) {
+export function inspectEndpoint(value) {
   const url = new URL(value);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(local && url.protocol === 'http:'))) {
     throw new Error('Use an HTTPS model URL, or HTTP on loopback. Supply credentials through the environment.');
   }
-  return url.href.replace(/\/$/, '');
+  return { base: url.href.replace(/\/$/, ''), local };
 }
 
 // A chat-completions endpoint is one provider behind seed's provider seam. Any service that speaks
 // POST {base}/chat/completions works; Bloom names no default service and sends no key it was not given.
 export function createChatProvider({ baseURL, apiKey, defaultModel, fetcher = fetch } = {}) {
   if (!baseURL) throw new Error('Choose a model endpoint with --api-base.');
-  const base = endpoint(baseURL);
+  const { base } = inspectEndpoint(baseURL);
   return {
     label: 'Chat completions API', defaultModel,
     async generate({ system, prompt, model, signal }) {

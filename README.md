@@ -30,6 +30,14 @@ Every provider runs behind [seed](https://github.com/Vidoxlabs/seed)'s provider 
 
 **Coding sessions** need a coding runtime, and none ships with Bloom yet. The scripted demo runtime shows the coding view, with streamed plans, tool activity and approvals. Outside the demo, the **Create a coding session** choice is hidden, and coding sessions saved by an earlier version stay readable but cannot start a new turn.
 
+## Terminal commands
+
+**Implemented.** After `npm install`, run `npm link` to install the `bloom` command from this checkout. Try the scripted runtime with `bloom chat --demo`, or run it once with `bloom run --headless --demo --json "Inspect the project"`. Headless runs reject requests by default. Use `--approve-policy allow-read` to allow read requests.
+
+A configured local model can run the existing team loop. Pass `--api-base REPLACE_WITH_YOUR_LOCAL_ENDPOINT` and `--model` with the backend model ID. The team loop uses the desktop and saved specialists. `--workspace` records the session's workspace. A coding runtime and terminal cloud approval are **planned**.
+
+`bloom doctor` checks the local installation. Add `--probe` and the configured local endpoint to check its model catalog. `bloom sessions list` lists session IDs. `bloom sessions export ID --jsonl` writes the stored events in order, and `bloom replay FILE --step` displays them one at a time. Use `--data-dir` to select the data directory, including when you read a demo session. `bloom memory --help` lists note commands. Forget requires `--confirm`.
+
 ## Work with a team
 
 - **Assign work.** Set the head agent’s **Jurisdiction** and describe the deliverable. Add a specialist under **Personas** before starting a new team with a configured model. The head assigns work to saved personas and team members. The scripted demo includes three example specialists. Select a recipient or type `@Reviewer: check the latest draft` for a direct assignment in the group. A review verdict of “revise” pauses assembly. Address the author with the requested changes and attach the review when continuing.

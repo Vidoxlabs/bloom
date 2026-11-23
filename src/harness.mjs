@@ -6,7 +6,7 @@ import { Teams } from './teams.mjs';
 import { demoProvider } from './models.mjs';
 import { BloomError } from './errors.mjs';
 
-function workspacePath(path) {
+export function workspacePath(path) {
   try {
     const resolved = realpathSync(path);
     if (!statSync(resolved).isDirectory()) throw new Error('Expected a directory');
