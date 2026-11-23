@@ -64,9 +64,9 @@ None. This capability introduces no tool IDs.
 
 ## Slices
 
-- `CAP-10.1` (`seed`): Correlation IDs on run trace records.
-- `CAP-10.2` (`bloom`): Unified append-only typed event stream and four renderer views.
-- `CAP-10.3` (`bloom`): Trace replay command, HTML export, digest redaction, and per-seat usage.
+- `CAP-10.1` (`seed`, milestone `M4`, status `proposed`): Correlation IDs on run trace records.
+- `CAP-10.2` (`bloom`, milestone `M4`, status `proposed`): Unified append-only typed event stream and four renderer views.
+- `CAP-10.3` (`bloom`, milestone `M4`, status `proposed`): Trace replay command, HTML export, digest redaction, and per-seat usage.
 
 ## Non-goals
 
@@ -82,7 +82,7 @@ None. This capability introduces no tool IDs.
 
 ## Open owner decisions
 
-- `D12` (pending owner decision): renderer ruling without a third-party TUI library, governing terminal view formatting and tracked in planned `docs/adr/0001-terminal-renderer.md`.
+- `D12` (pending owner ruling): renderer ruling without a third-party TUI library, governing terminal view formatting and tracked in `docs/adr/0001-terminal-renderer.md` (`Proposed`).
 
 ## Evidence
 
@@ -90,4 +90,5 @@ None. This capability introduces no tool IDs.
 
 ## Changes
 
+- `2026-11-23`: Added `M4` slice milestones across `CAP-10.1`..`CAP-10.3` and aligned `D12` ADR status reference.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.

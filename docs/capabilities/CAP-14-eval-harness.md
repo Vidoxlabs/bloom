@@ -4,8 +4,8 @@
 - Title: Eval harness
 - Lead: `bloom`
 - Touches: `seed`, `trellis`
-- Horizon: `next`
-- Milestone: `M5`
+- Horizon: `next` (`CAP-14.1`, `CAP-14.2` in `M5`; `CAP-14.3`, `CAP-14.4` in `later` `M8`)
+- Milestone: `M5` (`CAP-14.1`, `CAP-14.2` at `M5`; `CAP-14.3`, `CAP-14.4` at `M8`)
 - CLI phase: `P5`
 - Status: `proposed`
 - Claim: `planned`
@@ -62,10 +62,10 @@ Bloom needs repeatable, deterministic evaluation over coding and team workflows 
 
 ## Slices
 
-- `CAP-14.1` (`seed`): Scripted and function model test doubles.
-- `CAP-14.2` (`bloom`): Smoke eval dataset, deterministic evaluators, and smoke command (`next`, `M5`, `P5`).
-- `CAP-14.3` (`bloom`): Full eval suite, labeled judge option, and baseline diff reports (`later`, `M8`).
-- `CAP-14.4` (`trellis`): Eval harness consistency and determinism probes.
+- `CAP-14.1` (`seed`, milestone `M5`, status `proposed`): Scripted and function model test doubles.
+- `CAP-14.2` (`bloom`, milestone `M5`, status `proposed`): Smoke eval dataset, deterministic evaluators, and smoke command (`next`, `M5`, `P5`).
+- `CAP-14.3` (`bloom`, milestone `M8`, status `proposed`): Full eval suite, labeled judge option, and baseline diff reports (`later`, `M8`).
+- `CAP-14.4` (`trellis`, milestone `M8`, status `proposed`): Eval harness consistency and determinism probes (`later`, `M8`).
 
 ## Non-goals
 
@@ -88,4 +88,5 @@ Bloom needs repeatable, deterministic evaluation over coding and team workflows 
 
 ## Changes
 
+- `2026-11-23`: Added explicit `M5` (`CAP-14.1`, `CAP-14.2`) and `M8` (`CAP-14.3`, `CAP-14.4`) slice milestones.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.

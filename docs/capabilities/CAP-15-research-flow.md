@@ -58,10 +58,10 @@ Today `src/sources.mjs` (`importURL`) only retrieves literal HTTPS URLs pasted i
 
 ## Slices
 
-- `CAP-15.1` (`drosera`): Research source search face with third-party egress metadata.
-- `CAP-15.2` (`aestivation`): Typed research plan steps and step/revision caps.
-- `CAP-15.3` (`capillary`): Cited source attachment and uncited-claim flagging.
-- `CAP-15.4` (`bloom`): Coordinator research routing, scan, gated search, and cited reporter.
+- `CAP-15.1` (`drosera`, milestone `M8`, status `proposed`): Research source search face with third-party egress metadata.
+- `CAP-15.2` (`aestivation`, milestone `M8`, status `proposed`): Typed research plan steps and step/revision caps.
+- `CAP-15.3` (`capillary`, milestone `M8`, status `proposed`): Cited source attachment and uncited-claim flagging.
+- `CAP-15.4` (`bloom`, milestone `M8`, status `proposed`): Coordinator research routing, scan, gated search, and cited reporter.
 
 ## Non-goals
 
@@ -84,4 +84,5 @@ Today `src/sources.mjs` (`importURL`) only retrieves literal HTTPS URLs pasted i
 
 ## Changes
 
+- `2026-11-23`: Added `M8` slice milestones across `CAP-15.1`..`CAP-15.4`.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.

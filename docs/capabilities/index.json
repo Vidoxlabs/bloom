@@ -12,13 +12,16 @@
         {
           "id": "CAP-01.8",
           "title": "Bloom capability docs and workspace/orchestration specs",
+          "milestone": "M0",
           "status": "in-progress"
         }
       ],
       "toolIds": [],
       "contracts": [],
       "tests": [],
-      "prs": [],
+      "prs": [
+        "bloom#2"
+      ],
       "commits": [],
       "adr": [],
       "decision": null,
@@ -34,6 +37,7 @@
         {
           "id": "CAP-02.8",
           "title": "Self-test test/capabilities.test.mjs in bloom",
+          "milestone": "M2",
           "status": "proposed"
         }
       ],
@@ -56,6 +60,7 @@
         {
           "id": "CAP-03.3",
           "title": "Pre-dispatch input validation, single repair turn, and output validation",
+          "milestone": "M2",
           "status": "proposed"
         }
       ],
@@ -78,13 +83,21 @@
       "spec": "docs/capabilities/CAP-04-workspace-tools-coding-loop.md",
       "slices": [
         {
+          "id": "CAP-04.1",
+          "title": "Drosera workspace and finish tool faces pack and recipe",
+          "milestone": "M2",
+          "status": "proposed"
+        },
+        {
           "id": "CAP-04.2",
           "title": "Workspace root path containment, write serialization, capped digest output",
+          "milestone": "M2",
           "status": "proposed"
         },
         {
           "id": "CAP-04.3",
           "title": "Coding loop integration with workspace tools and finish action",
+          "milestone": "M2",
           "status": "proposed"
         }
       ],
@@ -117,11 +130,13 @@
         {
           "id": "CAP-05.5",
           "title": "Workspace file walker, read-only git context executor, and bloom pack CLI",
+          "milestone": "M3",
           "status": "proposed"
         },
         {
           "id": "CAP-05.6",
           "title": "Coding loop context-step integration and context.packet event",
+          "milestone": "M3",
           "status": "proposed"
         }
       ],
@@ -146,6 +161,7 @@
         {
           "id": "CAP-06.4",
           "title": "Approval UI/CLI flow, edit and respond handling, and permission events",
+          "milestone": "M4",
           "status": "proposed"
         }
       ],
@@ -170,6 +186,7 @@
         {
           "id": "CAP-07.4",
           "title": "Plan review loop wiring and plan events",
+          "milestone": "M3",
           "status": "proposed"
         }
       ],
@@ -192,13 +209,21 @@
       "spec": "docs/capabilities/CAP-08-seat-orchestration.md",
       "slices": [
         {
+          "id": "CAP-08.1",
+          "title": "Seed declarative team document validation checks",
+          "milestone": "M3",
+          "status": "proposed"
+        },
+        {
           "id": "CAP-08.2",
           "title": "Declarative seats data, role IDs, and deterministic verifier handoff",
+          "milestone": "M3",
           "status": "proposed"
         },
         {
           "id": "CAP-08.3",
           "title": "Bounded parallel fan-out with timeout, tool subset, and plan-order merge",
+          "milestone": "M3",
           "status": "proposed"
         }
       ],
@@ -224,6 +249,7 @@
         {
           "id": "CAP-09.3",
           "title": "Ordered guard hook chain in run loop",
+          "milestone": "M3",
           "status": "proposed"
         }
       ],
@@ -246,13 +272,21 @@
       "spec": "docs/capabilities/CAP-10-trace-observability.md",
       "slices": [
         {
+          "id": "CAP-10.1",
+          "title": "Seed correlation IDs on run trace records",
+          "milestone": "M4",
+          "status": "proposed"
+        },
+        {
           "id": "CAP-10.2",
           "title": "Unified append-only typed event stream and four renderer views",
+          "milestone": "M4",
           "status": "proposed"
         },
         {
           "id": "CAP-10.3",
           "title": "Trace replay command, HTML export, digest redaction, and per-seat usage",
+          "milestone": "M4",
           "status": "proposed"
         }
       ],
@@ -277,6 +311,7 @@
         {
           "id": "CAP-11.3",
           "title": "Thread continuity, consent enforcement, and digest-only trace logging",
+          "milestone": "M3",
           "status": "proposed"
         }
       ],
@@ -301,6 +336,7 @@
         {
           "id": "CAP-12.3",
           "title": "Step graph runtime execution, checkpoint tools, and interrupt resume",
+          "milestone": "M7",
           "status": "proposed"
         }
       ],
@@ -325,6 +361,7 @@
         {
           "id": "CAP-13.2",
           "title": "SQLite durable run store passing conformance suite",
+          "milestone": "M7",
           "status": "proposed"
         }
       ],
@@ -347,13 +384,27 @@
       "spec": "docs/capabilities/CAP-14-eval-harness.md",
       "slices": [
         {
+          "id": "CAP-14.1",
+          "title": "Seed scripted and function model test doubles",
+          "milestone": "M5",
+          "status": "proposed"
+        },
+        {
           "id": "CAP-14.2",
           "title": "Smoke eval dataset, deterministic evaluators, and smoke command",
+          "milestone": "M5",
           "status": "proposed"
         },
         {
           "id": "CAP-14.3",
           "title": "Full eval suite, labeled judge option, and baseline diff reports",
+          "milestone": "M8",
+          "status": "proposed"
+        },
+        {
+          "id": "CAP-14.4",
+          "title": "Trellis eval harness consistency and determinism probes",
+          "milestone": "M8",
           "status": "proposed"
         }
       ],
@@ -378,8 +429,27 @@
       "spec": "docs/capabilities/CAP-15-research-flow.md",
       "slices": [
         {
+          "id": "CAP-15.1",
+          "title": "Drosera research source search face",
+          "milestone": "M8",
+          "status": "proposed"
+        },
+        {
+          "id": "CAP-15.2",
+          "title": "Aestivation typed research plan steps and caps",
+          "milestone": "M8",
+          "status": "proposed"
+        },
+        {
+          "id": "CAP-15.3",
+          "title": "Capillary cited source attachment and uncited-claim flagging",
+          "milestone": "M8",
+          "status": "proposed"
+        },
+        {
           "id": "CAP-15.4",
           "title": "Coordinator research routing, scan, gated search, and cited reporter",
+          "milestone": "M8",
           "status": "proposed"
         }
       ],
@@ -406,6 +476,7 @@
         {
           "id": "CAP-16.3",
           "title": "Doctor probe model profile and profile-driven prompts and budgets",
+          "milestone": "M4",
           "status": "proposed"
         }
       ],
@@ -430,6 +501,7 @@
         {
           "id": "CAP-17.2",
           "title": "Workspace root enforcement and effect scope checks",
+          "milestone": "M9",
           "status": "proposed"
         }
       ],
@@ -454,6 +526,7 @@
         {
           "id": "CAP-18.3",
           "title": "Symbol outline executor and packer wiring",
+          "milestone": "M8",
           "status": "proposed"
         }
       ],

@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased
+Earlier history lives in git history and [docs/architecture.md](architecture.md).
 
-Earlier history lives in [docs/architecture.md](architecture.md) and contract `Changes` sections.
+## Unreleased
 
 ### Added
 
-- Phase 0 capability ledger scaffold and Bloom lead specifications (`CAP-01`, `CAP-04`, `CAP-08`, `CAP-10`, `CAP-14`, `CAP-15`).
+- Phase 0 capability ledger scaffold and Bloom lead specifications (`CAP-04`, `CAP-08`, `CAP-10`, `CAP-14`, `CAP-15`) (CAP-01, bloom#2).

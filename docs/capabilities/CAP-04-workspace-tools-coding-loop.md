@@ -63,9 +63,9 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Slices
 
-- `CAP-04.1` (`drosera`): Workspace and finish tool faces pack and recipe.
-- `CAP-04.2` (`bloom`): Workspace root path containment, write serialization, capped digest output.
-- `CAP-04.3` (`bloom`): Coding loop integration with workspace tools and finish action.
+- `CAP-04.1` (`drosera`, milestone `M2`, status `proposed`): Workspace and finish tool faces pack and recipe.
+- `CAP-04.2` (`bloom`, milestone `M2`, status `proposed`): Workspace root path containment, write serialization, capped digest output.
+- `CAP-04.3` (`bloom`, milestone `M2`, status `proposed`): Coding loop integration with workspace tools and finish action.
 
 ## Non-goals
 
@@ -81,7 +81,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Open owner decisions
 
-- `D12` (pending owner decision): P2 tool-ID rulings on the seven workspace and finish tool IDs (`workspace.file.read`, `workspace.dir.list`, `workspace.text.search`, `workspace.file.write`, `workspace.file.update`, `workspace.shell.execute`, `run.answer.create`), including whether `run.answer.create` remains a tool face or a harness finish action and default owner-gate flags for write/shell actions.
+- `D12` (pending owner ruling): P2 tool-ID rulings on the workspace and finish tool IDs (`workspace.file.update`, `workspace.shell.execute`, and `run.answer.create`, alongside `workspace.file.read`, `workspace.dir.list`, `workspace.text.search`, and `workspace.file.write`), including whether `run.answer.create` remains a tool face or a harness finish action and default owner-gate flags for write and shell actions.
 
 ## Evidence
 
@@ -89,4 +89,5 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Changes
 
+- `2026-11-23`: Added `M2` slice milestones across `CAP-04.1`..`CAP-04.3` and aligned `D12` wording.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.
