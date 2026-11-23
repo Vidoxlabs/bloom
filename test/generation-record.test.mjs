@@ -87,7 +87,7 @@ test('package.json pins seed to one full commit, and the installed seed is the r
   const { readFile } = await import('node:fs/promises');
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.match(pkg.dependencies['@vidoxlabs/seed'], /^github:Vidoxlabs\/seed#[0-9a-f]{40}$/);
-  assert.equal(pkg.dependencies['@vidoxlabs/seed'], 'github:Vidoxlabs/seed#57e334ba2c6c8d3f6aafa84d585431af59451192');
+  assert.equal(pkg.dependencies['@vidoxlabs/seed'], 'github:Vidoxlabs/seed#7c0cdae3779a5b55aebabe1b055df4978e85962e');
   const { VERSION } = await import('@vidoxlabs/seed');
-  assert.equal(VERSION, '0.6.0');
+  assert.equal(VERSION, '0.8.0');
 });

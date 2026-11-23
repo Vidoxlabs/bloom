@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "dependencies": {
-    "@vidoxlabs/seed": "github:Vidoxlabs/seed#57e334ba2c6c8d3f6aafa84d585431af59451192"
+    "@vidoxlabs/seed": "github:Vidoxlabs/seed#7c0cdae3779a5b55aebabe1b055df4978e85962e"
   },
   "engines": {
     "node": ">=22.13.0"
