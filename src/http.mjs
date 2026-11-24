@@ -7,6 +7,7 @@ const assets = new Map([
   ['/tokens.css', ['tokens.css', 'text/css; charset=utf-8']],
   ...['geist-400','geist-600','geist-mono-400'].map(name => ['/fonts/' + name + '.woff2', ['fonts/' + name + '.woff2', 'font/woff2']]),
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/coding-view.js', ['coding-view.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
 ]);
 const pathRule = /^\/api\/sessions\/([0-9a-f-]{36})\/(events|turns|stop|permissions\/([0-9a-f-]{36}))$/;

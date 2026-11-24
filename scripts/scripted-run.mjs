@@ -3,15 +3,15 @@
 // if anything reaches for the network.
 //
 //   node scripts/scripted-run.mjs <sandbox folder> [--yes]
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import { lineRenderer } from '../src/cli/render/line.mjs';
-import { copyDemoRepo, openCodingSession } from '../test/fixtures/coding-session.mjs';
+import { openCodingSession } from '../test/fixtures/coding-session.mjs';
 import { demoTask, scriptedProvider } from '../test/fixtures/demo-provider.mjs';
+import { SandboxError, makeSandbox, sandboxGit } from './make-sandbox.mjs';
 
 globalThis.fetch = () => { throw new Error('The scripted run reached for the network.'); };
 
@@ -22,25 +22,14 @@ if (!folder) {
   console.error('Usage: node scripts/scripted-run.mjs <sandbox folder> [--yes]');
   process.exit(2);
 }
-const sandbox = resolve(folder);
-if (existsSync(sandbox) && readdirSync(sandbox).length) {
-  console.error('Choose a new or empty sandbox folder.');
-  process.exit(2);
+let sandbox;
+try {
+  ({ sandbox } = makeSandbox(folder));
+} catch (error) {
+  console.error(error instanceof SandboxError ? error.message : 'Bloom could not make the sandbox.');
+  process.exit(error instanceof SandboxError ? 2 : 1);
 }
-mkdirSync(sandbox, { recursive: true });
-copyDemoRepo(sandbox);
-const git = (...gitArgs) => spawnSync('git', gitArgs, {
-  cwd: sandbox, encoding: 'utf8',
-  env: { ...process.env, GIT_PAGER: 'cat', GIT_AUTHOR_NAME: 'bloom-sandbox', GIT_AUTHOR_EMAIL: 'bloom-sandbox',
-    GIT_COMMITTER_NAME: 'bloom-sandbox', GIT_COMMITTER_EMAIL: 'bloom-sandbox' },
-});
-for (const step of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'Baseline']]) {
-  const result = git(...step);
-  if (result.status !== 0) {
-    console.error('git ' + step[0] + ' failed in the sandbox.');
-    process.exit(1);
-  }
-}
+const git = (...gitArgs) => sandboxGit(sandbox, ...gitArgs);
 
 const dataDirectory = mkdtempSync(join(tmpdir(), 'bloom-scripted-'));
 const input = createInterface({ input: process.stdin });

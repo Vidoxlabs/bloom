@@ -6,7 +6,9 @@ import { dataPath } from '../data-dir.mjs';
 import { BloomError } from '../errors.mjs';
 import { Harness, workspacePath } from '../harness.mjs';
 import { Store } from '../store.mjs';
-import { readTerminalProvider, terminalModel } from './config.mjs';
+import { readProfile, profileKey } from '../profile-store.mjs';
+import { isBloomSandbox } from '../sandbox-marker.mjs';
+import { readTerminalProvider, terminalSelection } from './config.mjs';
 import { doctor } from './doctor.mjs';
 import { selectProviders } from './providers.mjs';
 import { lineRenderer } from './render/line.mjs';
@@ -18,19 +20,19 @@ import { runResult, runTurn } from './turn.mjs';
 const string = { type: 'string' };
 const flag = { type: 'boolean' };
 const common = { help: { ...flag, short: 'h' }, version: { ...flag, short: 'v' }, 'data-dir': string };
-const sharedRun = { model: string, workspace: string, demo: flag };
+const sharedRun = { model: string, workspace: string, demo: flag, 'allow-cloud': flag };
 const commands = {
   chat: { ...sharedRun, team: string },
   run: { ...sharedRun, headless: flag, json: flag, 'max-calls': string, 'token-limit': string, 'approve-policy': string, 'output-last-message': string },
-  doctor: { json: flag },
+  doctor: { json: flag, probe: flag, 'allow-cloud': flag },
   sessions: { json: flag, jsonl: flag, out: string },
   replay: { json: flag, step: flag },
   memory: { team: string, text: string, confirm: flag },
 };
 const help = {
-  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo]  (--workspace without --team runs the coding loop)',
-  run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo]',
-  doctor: 'bloom doctor [--json]',
+  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo] [--allow-cloud]  (--workspace without --team runs the coding loop)',
+  run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo] [--allow-cloud]',
+  doctor: 'bloom doctor [--json] [--probe] [--allow-cloud]  (--probe asks the configured provider what it supports and saves its profile)',
   sessions: 'bloom sessions list [--json] | show ID [--json] | export ID --jsonl [--out FILE]',
   replay: 'bloom replay FILE [--json] [--step]',
   memory: 'bloom memory list --team NAME | keep ID | correct ID --text TEXT | forget ID --confirm',
@@ -108,8 +110,14 @@ function completion(result, message, json) {
 }
 
 function cloudRefusal(provider) {
-  if (provider) return 'Cloud access for ' + provider.label + ' is unavailable in the terminal shell.';
-  return 'Cloud models are unavailable in the terminal shell.';
+  if (provider) {
+    return 'Cloud access for ' + provider.label + ' needs --allow-cloud inside a sandbox made by scripts/make-sandbox.mjs.';
+  }
+  return 'Cloud models need --allow-cloud inside a sandbox made by scripts/make-sandbox.mjs.';
+}
+
+function sandboxRefusal() {
+  return 'Cloud providers run only the coding loop (no --team), inside a sandbox made by scripts/make-sandbox.mjs.';
 }
 
 async function promptText(argument) {
@@ -138,7 +146,17 @@ async function runCommand(action, args, values) {
     noExtras(args);
   }
   const provider = values.demo ? null : readTerminalProvider(directory);
-  const configured = values.demo || provider?.local;
+  const workspace = values.workspace ? workspacePath(resolve(values.workspace)) : '';
+  const cloud = Boolean(provider && !provider.local);
+  let configured = values.demo || provider?.local;
+  if (cloud) {
+    if (!values['allow-cloud']) configured = false;
+    else if (!workspace || !isBloomSandbox(workspace) || values.team) {
+      if (!headless) nextLine = attachReader();
+      renderer = values.json ? jsonRenderer({ stdout, headless, nextLine, policy }) : lineRenderer({ stdout, headless, nextLine, policy });
+      return completion(runResult('refused', 'EGRESS_REFUSED'), sandboxRefusal(), values.json);
+    } else configured = true;
+  }
   if (!headless && configured) nextLine = attachReader();
   const streams = { stdout, headless, nextLine, policy };
   renderer = values.json ? jsonRenderer(streams) : lineRenderer(streams);
@@ -148,12 +166,14 @@ async function runCommand(action, args, values) {
       : completion(runResult('failed', 'PROVIDER_UNCONFIGURED'),
         'Set a provider in config.json under --data-dir, or choose --demo.', values.json);
   }
-  const model = provider ? terminalModel(provider, values.model) : values.model;
-  if (provider && /-cloud$/i.test(model)) {
+  const selection = provider ? terminalSelection(provider, values.model) : null;
+  const model = selection ? selection.backendModel : values.model;
+  // A profile saved by doctor --probe sets the coding loop's budgets; without one, defaults apply.
+  const profile = selection ? readProfile(directory, profileKey(provider.name, selection.alias)) : null;
+  if (provider && /-cloud$/i.test(model) && !cloud) {
     return completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(), values.json);
   }
-  const workspace = values.workspace ? workspacePath(resolve(values.workspace)) : '';
-  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless }, workspace);
+  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless, profile, cloud }, workspace);
   // A workspace without a team name opens the coding loop in that folder.
   const coding = !values.demo && workspace && !values.team;
   const session = values.demo ? harness.createSession({ model })

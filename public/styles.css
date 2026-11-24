@@ -93,6 +93,8 @@ a { color: inherit; }
 .tools li > span, .plan li > span + span { margin-inline-start: var(--vi-space-gap-compact-default); }
 .approval, #usage:not(:empty) { margin-block: var(--vi-space-gap-compact-default); padding: var(--vi-space-gap-compact-default); border: 1px solid var(--vi-colors-border-separator-primary-base); border-radius: var(--vi-spacing-layout-radius-control-base); }
 .approval strong { color: var(--vi-colors-status-indicator-warning-base); }
+.tool-output, .approval-detail { margin: 0; font-family: var(--vi-typography-typography-family-mono-base); font-size: var(--vi-typography-typography-size-xs-base); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16em; overflow: auto; }
+.tools .hint { margin-inline-start: var(--vi-space-gap-compact-default); }
 .error { color: var(--vi-colors-text-content-primary-base); background: var(--vi-colors-surface-background-secondary-base); border-inline-start: 2px solid var(--vi-colors-status-indicator-error-base); padding-inline: var(--vi-space-gap-spacious-default); overflow-wrap: anywhere; }
 .error:empty { display: none; }
 dialog { color: inherit; background: var(--vi-colors-surface-background-secondary-base); border: 1px solid var(--vi-colors-border-separator-primary-base); border-radius: var(--vi-spacing-layout-radius-standard-base); padding: var(--vi-space-rhythm-page-gutter-base); max-width: min(90vw,68ch); width: 100%; }

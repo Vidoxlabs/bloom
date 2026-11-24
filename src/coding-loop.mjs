@@ -122,13 +122,26 @@ function observationText(toolId, result) {
   return head(result.output, OBSERVATION_CHARS) + note;
 }
 
-function promptBudget(profile) {
-  const context = profile?.contextLength;
-  if (context && context.source !== 'unknown' && Number.isSafeInteger(context.value)) {
+const known = slot => slot && slot.source !== 'unknown' ? slot : null;
+
+// Pick the loop's prompt settings from a model profile, using only reported or probed values.
+// The action format stays the fenced json block (D16) whatever the profile says, and an unknown
+// slot falls back to the default rather than a guess.
+export function codingConfig(profile) {
+  const context = known(profile?.contextLength);
+  const streaming = known(profile?.streaming);
+  const tools = known(profile?.toolCalling);
+  const sized = context && Number.isSafeInteger(context.value);
+  return {
+    promptStyle: 'fenced-json',
     // About three characters a token, keeping a quarter of the window for the reply.
-    return Math.max(4_000, Math.floor(context.value * 3 * 0.75));
-  }
-  return DEFAULT_PROMPT_CHARS;
+    promptChars: sized ? Math.max(4_000, Math.floor(context.value * 3 * 0.75)) : DEFAULT_PROMPT_CHARS,
+    budgetSource: sized ? context.source : 'default',
+    streaming: streaming ? streaming.value !== false : true,
+    streamingSource: streaming ? streaming.source : 'unknown',
+    constrainedOutput: false,
+    toolCalling: tools?.value === true ? tools.source : 'unknown',
+  };
 }
 
 function buildPrompt(task, earlier, steps, budget) {
@@ -149,6 +162,7 @@ function buildPrompt(task, earlier, steps, budget) {
 export function createCodingRuntime({
   provider,
   headless = false,
+  cloud = false,
   maxSteps = 40,
   profile = null,
   allowedTools = workspaceToolPack.ids(),
@@ -164,11 +178,14 @@ export function createCodingRuntime({
   const admitted = new Set(allowedTools);
   const faces = workspaceToolPack.faces.filter(face => admitted.has(face.id));
   const system = systemPrompt(faces, headless);
-  const budget = promptBudget(profile);
-  const streaming = profile?.streaming?.source === 'unknown' || profile?.streaming?.value !== false;
+  const config = Object.freeze(codingConfig(profile));
+  const budget = config.promptChars;
+  const streaming = config.streaming;
   const sessions = new Map();
 
-  async function run({ workspace, nativeId, model, prompt: task, signal }, hooks) {
+  async function run({ workspace, nativeId, model: requested, prompt: task, signal }, hooks) {
+    // A session opened without a model, as the web form opens one, uses the provider's default.
+    const model = requested ?? adopted.defaultModel;
     const id = nativeId ?? newId();
     hooks.bind({ nativeId: id, model: model ?? null, models: model ? [{ id: model, label: model }] : [], resumed: Boolean(nativeId) });
     const memory = sessions.get(id) ?? { allowances: new Set(), earlier: [] };
@@ -176,6 +193,7 @@ export function createCodingRuntime({
     const tools = createWorkspaceTools(workspace, { commands: workspaceCommandAccess, environment, searchPath, ...toolOptions });
     const steps = [];
     let repairs = 0;
+    let messageApproved = !cloud;
     const elapsed = started => Math.max(0, Math.round(clock() - started));
 
     // One repair turn is shared by argument and output checks; a call that runs resets it.
@@ -189,15 +207,39 @@ export function createCodingRuntime({
 
     for (let call = 1; call <= maxSteps; call += 1) {
       if (signal.aborted) return { stopReason: 'cancelled' };
+      if (cloud && !messageApproved) {
+        if (headless) return { stopReason: 'refusal' };
+        const choice = await hooks.permission({
+          title: 'Send this turn to a cloud model', kind: 'egress', effect: 'egress', toolId: 'cloud-message',
+          summary: 'first message', detail: 'Cloud model will receive Bloom\'s fixed tool instructions and:\n' + buildPrompt(task, memory.earlier, [], Number.MAX_SAFE_INTEGER),
+          options: [
+            { id: 'allow-once', kind: 'allow_once', label: 'Allow once' },
+            { id: 'reject', kind: 'reject_once', label: 'Reject' },
+          ],
+        });
+        if (signal.aborted || choice === null) return { stopReason: 'cancelled' };
+        if (choice === 'reject') return { stopReason: 'refusal' };
+        messageApproved = true;
+      }
       const started = clock();
-      const generation = await adopted.generate({
-        system, prompt: buildPrompt(task, memory.earlier, steps, budget), model, signal,
-        ...(streaming ? { onDelta: text => { if (!signal.aborted) hooks.emit('assistant.delta', { text }); } } : {}),
-      });
+      let generation;
+      try {
+        generation = await adopted.generate({
+          system, prompt: buildPrompt(task, memory.earlier, steps, budget), model, signal,
+          ...(streaming ? { onDelta: text => { if (!signal.aborted) hooks.emit('assistant.delta', { text }); } } : {}),
+        });
+      } catch (error) {
+        if (signal.aborted) return { stopReason: 'cancelled' };
+        if (error instanceof BloomError && error.code === 'PROVIDER_RATE_LIMITED') {
+          return { stopReason: 'rate_limited' };
+        }
+        throw error;
+      }
       if (signal.aborted) return { stopReason: 'cancelled' };
       if (!streaming && generation.text) hooks.emit('assistant.delta', { text: generation.text });
       hooks.emit('model.call', {
-        call, durationMs: elapsed(started), model: generation.model, complete: generation.complete, usage: generation.usage,
+        call, durationMs: elapsed(started), model: generation.model, complete: generation.complete,
+        usage: generation.usage, ...(cloud ? { cloud: true } : {}),
       });
       const reply = generation.text;
       const parsed = generation.complete ? parseAction(reply) : { errors: ['The reply was cut off before it finished.'] };
@@ -221,8 +263,10 @@ export function createCodingRuntime({
       const finishRow = (status, details = {}) => hooks.emit('tool.updated', { ...row, status, ...details });
       const toolStarted = clock();
       let approval = 'none';
+      // Cloud mode asks before every tool, including reads, because results leave the machine.
+      const needsApproval = cloud || face.effect !== 'read';
 
-      if (face.effect !== 'read') {
+      if (needsApproval) {
         if (headless) {
           finishRow('refused', { durationMs: elapsed(toolStarted), approval: 'headless' });
           steps.push({ reply, observation: `${DENIED}: this run is headless and cannot write or run commands.` });
@@ -241,12 +285,12 @@ export function createCodingRuntime({
           }
         }
         const digest = argumentDigest(toolId, args);
-        if (toolId !== SHELL && memory.allowances.has(digest)) {
+        if (toolId !== SHELL && !cloud && memory.allowances.has(digest)) {
           approval = 'session';
         } else {
           const options = [
             { id: 'allow-once', kind: 'allow_once', label: 'Allow once' },
-            ...(toolId === SHELL ? [] : [{ id: 'allow-session', kind: 'allow_session', label: 'Allow this exact call for the session' }]),
+            ...(toolId !== SHELL && !cloud ? [{ id: 'allow-session', kind: 'allow_session', label: 'Allow this exact call for the session' }] : []),
             { id: 'reject', kind: 'reject_once', label: 'Reject' },
           ];
           const choice = await hooks.permission({
@@ -315,6 +359,7 @@ export function createCodingRuntime({
   return {
     id: CODING_RUNTIME_ID,
     label,
+    config,
     get provider() { return adopted; },
     set provider(value) { adopted = adoptProvider(value); },
     run,

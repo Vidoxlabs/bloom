@@ -1,5 +1,6 @@
 import { BloomError } from './errors.mjs';
 import { endpointRedactor, streamRedactor } from './endpoint-privacy.mjs';
+import { providerFailureReason, readErrorBody } from './provider-errors.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -25,7 +26,14 @@ async function send(url, body, { headers, signal, fetcher, label }) {
     if (signal.aborted) throw signal.reason;
     throw new BloomError('PROVIDER_OFFLINE', 'Could not connect to ' + label + '.');
   }
-  if (!response.ok) throw new BloomError('PROVIDER_REJECTED', label + ' returned HTTP ' + response.status + '. Check the model, server version and credentials.');
+  if (!response.ok) {
+    const errorBody = await readErrorBody(response);
+    const reason = providerFailureReason({ status: response.status, body: errorBody });
+    if (reason === 'rate-limited') {
+      throw new BloomError('PROVIDER_RATE_LIMITED', label + ' is rate-limited. The turn ends without retrying.');
+    }
+    throw new BloomError('PROVIDER_REJECTED', label + ' returned ' + reason + '. Check the model, server version and credentials.');
+  }
   return response;
 }
 
@@ -118,7 +126,7 @@ export function createChatProvider({
   baseURL, apiKey, defaultModel, fetcher = fetch, locality, allowInsecureHttp, terminal = false,
   label = 'the configured model endpoint', redact,
 } = {}) {
-  if (!baseURL) throw new Error('Choose a model endpoint with --api-base.');
+  if (!baseURL) throw new Error('Choose a model endpoint in config.json.');
   const { base } = inspectEndpoint(baseURL, { locality, allowInsecureHttp });
   redact ??= endpointRedactor(baseURL);
   return {
@@ -146,7 +154,7 @@ export function createChatProvider({
 export const unconfiguredProvider = {
   label: 'No model endpoint', defaultModel: undefined,
   async generate(_call) {
-    throw new BloomError('PROVIDER_UNCONFIGURED', 'Start Bloom with --api-base and a chat-completions URL to give teams a model.', 409);
+    throw new BloomError('PROVIDER_UNCONFIGURED', 'Set a provider in config.json under the data directory to give teams a model.', 409);
   },
 };
 

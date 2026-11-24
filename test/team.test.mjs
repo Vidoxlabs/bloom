@@ -127,7 +127,7 @@ test('the chat adapter posts to the endpoint it was given, with the selected mod
   assert.equal(calls[1].headers.authorization,undefined);
   await assert.rejects(createChatProvider({ baseURL:'http://127.0.0.1:5555/v1', fetcher }).generate({ ...input, model: undefined }), { code: 'MODEL_REQUIRED' });
   assert.throws(() => createChatProvider({baseURL:'http://remote.example'}));
-  assert.throws(() => createChatProvider({}), /--api-base/);
+  assert.throws(() => createChatProvider({}), /config\.json/);
 });
 
 test('forget during a model call prevents a late reply from being handed off', async t => {

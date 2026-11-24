@@ -1,6 +1,6 @@
 {
   "name": "@vidoxlabs/bloom",
-  "version": "0.9.0",
+  "version": "0.12.0",
   "description": "A local-first web workspace for agent teams and shared artifacts",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,7 @@
     "start": "node src/main.mjs",
     "demo": "node src/main.mjs --demo",
     "test": "node --test \"test/*.test.mjs\"",
+    "test:live": "node --test \"test/live/*.live.mjs\"",
     "design:sync": "node scripts/sync-design.mjs",
     "desktop": "node scripts/desktop.mjs",
     "test:network": "node --test checks/network.mjs"

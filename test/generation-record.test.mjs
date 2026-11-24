@@ -79,8 +79,8 @@ test('the seam refuses an adapter that cannot generate, when Bloom starts', () =
   assert.throws(() => adoptProvider(null), /provider seam/);
 });
 
-test('without an endpoint, a team call stops with a message that names the flag', async () => {
-  await assert.rejects(adoptProvider(unconfiguredProvider).generate(input()), { code: 'PROVIDER_UNCONFIGURED', message: /--api-base/ });
+test('without an endpoint, a team call stops with a message that names the config file', async () => {
+  await assert.rejects(adoptProvider(unconfiguredProvider).generate(input()), { code: 'PROVIDER_UNCONFIGURED', message: /config\.json/ });
 });
 
 test('package.json pins seed to one full commit, and the installed seed is the release at that commit', async () => {

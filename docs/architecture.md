@@ -34,7 +34,7 @@ A head agent sees the other teams on the installation by name and jurisdiction. 
 
 The head receives the brief, roster and ordinary desktop file titles. Worker calls receive the jurisdiction, explicit assignment, the ranked notes admitted for that assignment, recent group handoffs (including answers from other teams) and attached evidence. The text budget for all file excerpts in a worker packet is 28,000 characters, with a per-file cap of 12,000 characters. Character caps protect packet size. The usage ledger uses provider-reported token counts. Stable system instructions precede the changing evidence, allowing supporting providers to reuse their prompt prefix.
 
-A team provider implements `generate({system, prompt, model, signal, ...})` and returns `{text, complete, model, usage, costUSD}`. `text` is always a string; a reply with no text body is returned as an empty, incomplete record. `usage` holds token counts only, in five fields: `input`, `output`, `total`, `cacheRead` and `cacheWrite`. A reported monetary cost is `costUSD`, beside usage rather than inside it. Missing metrics use null. Since 0.7.0 Bloom imports seed and runs every team provider behind its provider seam (`src/provider.mjs`): seed's `validateProvider` checks the adapter when Bloom starts, and seed's `normalizeGeneration` checks every reply before the team loop reads it. A reply outside the record stops the turn with `PROVIDER_CONTRACT`. Seed's record has no money field, so Bloom carries a reported `costUSD` beside it. `test/generation-record.test.mjs` holds both halves. A custom provider that still puts `costUSD` inside usage is now refused. Bloom ships one network adapter, for chat completions, with no default service: `--api-base` names the endpoint and `BLOOM_API_KEY` its key. Chat completions commonly includes cached reads in its input count. Bloom keeps the provider’s reported total and never converts absent usage into a monetary saving. Without an endpoint, team turns stop with `PROVIDER_UNCONFIGURED`.
+A team provider implements `generate({system, prompt, model, signal, ...})` and returns `{text, complete, model, usage, costUSD}`. `text` is always a string; a reply with no text body is returned as an empty, incomplete record. `usage` holds token counts only, in five fields: `input`, `output`, `total`, `cacheRead` and `cacheWrite`. A reported monetary cost is `costUSD`, beside usage rather than inside it. Missing metrics use null. Since 0.7.0 Bloom imports seed and runs every team provider behind its provider seam (`src/provider.mjs`): seed's `validateProvider` checks the adapter when Bloom starts, and seed's `normalizeGeneration` checks every reply before the team loop reads it. A reply outside the record stops the turn with `PROVIDER_CONTRACT`. Seed's record has no money field, so Bloom carries a reported `costUSD` beside it. `test/generation-record.test.mjs` holds both halves. A custom provider that still puts `costUSD` inside usage is now refused. Bloom ships one network adapter, for chat completions, with no default service: the private `config.json` in the data directory names the endpoint and the environment variable that holds its key, for the terminal and the web workspace alike. Chat completions commonly includes cached reads in its input count. Bloom keeps the provider’s reported total and never converts absent usage into a monetary saving. Without an endpoint, team turns stop with `PROVIDER_UNCONFIGURED`.
 
 Stopping or losing a server never implicitly repeats a model call. In-progress team outputs appear only after the model returns a complete structured response. A coding session runs on a pluggable runtime: `run(input, hooks)` streams text, plan and tool events, asks for approvals through the harness and returns a stop reason. Bloom offers each option the runtime sends, such as **Allow once**, **Always allow** and **Reject**. The coding loop is the runtime for `--workspace` sessions; the scripted runtime is demo-only.
 
@@ -169,33 +169,56 @@ because Bloom stops only the process group it launched. Writes under `.git/`
 are refused; other repository metadata outside `.git/` can still be written if
 approved.
 
-## Workspace tools
+## Cloud providers
 
-`src/workspace-tools.mjs` binds Drosera's workspace tool pack to the canonical
-session directory from `workspacePath`. Its file tools check relative paths
-and resolved link targets before content I/O. A recursive text search
-visits regular workspace files in path order. Directory output and search
-matches use workspace-relative names.
+A provider with `locality` set to `cloud` is refused in the terminal until
+`--allow-cloud` is passed, and only inside a folder created by
+`scripts/make-sandbox.mjs` for the coding loop. Team sessions never use a cloud
+provider. While cloud is on, Bloom asks before the first message leaves the
+machine and before every tool call, including reads, and does not offer
+session-wide allow. Model rows say cloud. The web workspace stays local only.
+Opt-in live tests run with `BLOOM_LIVE=1 npm run test:live` (and
+`BLOOM_LIVE_ALLOW_CLOUD=1` when the provider is cloud) and never from offline
+`npm test`.
 
-Writes queue by canonical path in the Bloom process and replace the target
-atomically. A targeted update needs one exact match, including the check for
-overlapping matches. Command execution uses the canonical workspace as its
-working directory and takes an executable and arguments without shell
-expansion. Bloom forwards `PATH`, `LANG`, and `TERM`. Each command gets a fresh
-temporary `HOME`, and `USERPROFILE` on Windows, outside the workspace and the
-user's home. Bloom removes it after the run. The command deadline
-stops output capture and terminates the launched process. On POSIX it targets
-the process group. Commands run under the local OS account and the coding
-adapter owns the approval and dispatch flow.
-Command arguments are not path-contained in this release. The executor refuses
-`workspace.shell.execute` unless a test opts in, and no Bloom entry point opts
-in. CAP-04.3 adds a command allowlist and argument containment before any live run.
+In cloud mode these leave the machine and go to the provider named in your
+config (for AI Studio, Google): each task you approve, Bloom's fixed tool
+instructions, short summaries of earlier tasks and answers in the same session,
+the model's own replies within the turn, and every tool result you approve,
+including file contents and command output. Bloom asks before each task is sent
+and before each tool call; the follow-up requests inside a turn carry only
+results you already approved and are sent without a further prompt. Your key
+travels only in the request's Authorization header. What the provider keeps,
+and for how long, is set by its terms, not by Bloom: Google's Gemini API terms
+say that on unpaid use, including AI Studio and free quota, Google uses
+submitted content and responses to improve its products. Use a throwaway
+sandbox and send nothing you would not publish.
 
-The executor returns `output`, `truncatedBytes`, and `outputSha256`. It keeps a
-UTF-8 prefix ending at a complete code point and hashes the full decoded text
-before truncation. For commands, stdout and stderr contribute in observed
-order, and a timeout reports the text captured up to the deadline alongside
-`timedOut` and a null `exitCode`.
+## Model profiles
+
+`bloom doctor --probe` asks the configured provider what it supports and saves
+the answer as a seed model profile in `profiles.json` in Bloom's data
+directory, keyed by the provider's config name and the model alias. The file
+holds no address, and the printed checks name the provider only by its config
+name and locality.
+
+The probe sends two requests. The models list, with a 5 second limit, shows
+whether the server answers, which model IDs it lists, and whether the
+configured alias's backend model is among them. A failure is reported as
+`refused`, `timeout`, `tls` or `http-<code>`. One fixed one-token streaming
+request, with a 30 second limit, shows whether the server streams; it carries
+the same short message every time and nothing from the user. Context length,
+tool calling and constrained output are `reported` only when the models list
+entry publishes them, and `unknown` otherwise. No probe request carries a tools
+or schema field, and an unknown check is never a pass. `doctor --probe` exits 1
+on any failed check.
+
+The coding loop reads the saved profile for the provider and alias it runs
+with. A reported or probed context length sets the prompt budget, and a probed
+"no" for streaming makes it ask for whole replies. Anything unknown falls back
+to the default budget and to streaming. The action format stays the fenced json
+block whatever the profile says, so tool calling and constrained output are
+recorded but do not change the requests yet.
 
 ## Local note writes
 
@@ -215,13 +238,16 @@ Omit `--check` to update the used properties. A fresh Bloom checkout runs from t
 
 ## Verification
 
-The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam, the coding-session harness against a scripted runtime, the command gate, and the coding loop against a scripted provider and a synthetic project with zero network calls. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
+The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam, the coding-session harness against a scripted runtime, the command gate, the provider probe against a fake server, and the coding loop against a scripted provider and a synthetic project with zero network calls. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
 
 ## Changes
 
 - 2026-11-24: Compare resolved Git metadata paths on Windows and verify the Git command fixture with portable repository configuration (CAP-04, bloom#5).
 
 - 2026-11-24: Harden the command gate and file tools for the coding loop (CAP-04, bloom#5).
+- 2026-11-24: Add `bloom doctor --probe` and drive the coding loop's budget and streaming from the saved model profile (CAP-16, bloom#7).
+- 2026-11-24: Read the web workspace's endpoint only from the private config and show coding rows and approval detail in the browser (CAP-04, bloom#8).
+- 2026-11-24: Add cloud opt-in with `--allow-cloud` in a make-sandbox folder, Gemini OpenAI-compatible probe and error mapping, and opt-in live tests (CAP-16, bloom#9).
 - 2026-11-24: Add the coding loop with strict actions, one shared repair turn, per-call approvals, streamed text, a trace row per call, and the allowlisted command gate (CAP-04, bloom#5).
 - 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
 - 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).

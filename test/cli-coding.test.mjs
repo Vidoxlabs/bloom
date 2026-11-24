@@ -76,3 +76,38 @@ test('cli-run-workspace-uses-coding-loop-and-never-writes', async t => {
   assert.equal(again.status, 0, again.stderr);
   assert.equal(readFileSync(last, 'utf8'), 'Final words.');
 });
+
+// A preloaded server that lists the model and answers completions in one piece, never streamed.
+function plainFetch(replies) {
+  return 'data:text/javascript,' + encodeURIComponent(`
+    const replies = ${JSON.stringify(replies)};
+    let index = 0;
+    const seen = [];
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith('/models')) return Response.json({ data: [{ id: 'fixture-backend', context_length: 4096 }] });
+      const body = JSON.parse(init.body);
+      seen.push(body.stream);
+      if (body.max_tokens === 1) return Response.json({ choices: [{ message: { content: 'OK' }, finish_reason: 'length' }] });
+      if (body.stream !== false) throw new Error('expected an unstreamed request after the probe');
+      return Response.json({ model: 'fixture-backend', choices: [{ message: { content: replies[index++] ?? replies.at(-1) }, finish_reason: 'stop' }] });
+    };
+  `);
+}
+
+test('cli-doctor-probe-profile-drives-run', async t => {
+  const { data, workspace } = setup(t);
+  const probe = spawnSync(process.execPath, ['--import', plainFetch([]), bin, 'doctor', '--probe', '--json', '--data-dir', data],
+    { encoding: 'utf8', timeout: 20_000 });
+  assert.equal(probe.status, 0, probe.stderr + probe.stdout);
+  const checks = Object.fromEntries(JSON.parse(probe.stdout).map(item => [item.check, item]));
+  assert.equal(checks.Streaming.detail, 'no, probed');
+  assert.equal(checks['Context length'].detail, '4096, reported');
+  assert.ok(!probe.stdout.toLowerCase().includes(marker));
+  const stored = JSON.parse(readFileSync(join(data, 'profiles.json'), 'utf8'));
+  assert.deepEqual(Object.keys(stored.profiles), ['lab/fixture']);
+  // The run reads the saved profile, so it asks for whole replies instead of a stream.
+  const run = spawnSync(process.execPath, ['--import', plainFetch([action('run.answer.create', { text: 'Done.' })]), bin, 'run',
+    '--headless', 'Finish.', '--workspace', workspace, '--json', '--data-dir', data], { encoding: 'utf8', timeout: 20_000 });
+  const result = run.stdout.trim().split('\n').map(line => JSON.parse(line)).at(-1);
+  assert.equal(result.status, 'finished', run.stderr);
+});
