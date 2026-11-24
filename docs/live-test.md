@@ -86,7 +86,7 @@ Create NOTES.md with one line describing this project. Run the tests, fix the fa
 Read each approval before you answer it. Approve writes and test commands in the sandbox, and reject anything else. When the loop finishes, look at what changed:
 
 ```bash
-cd <sandbox folder> && git status && git diff
+cd <sandbox folder> && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager status && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager diff --no-ext-diff
 ```
 
 The run passes when all of these hold:
@@ -154,6 +154,8 @@ cd bloom && node bin/bloom.mjs chat --workspace <sandbox folder> --allow-cloud
 ```
 
 While cloud is on, Bloom asks before the first message leaves the machine and before every tool call, including reads. Model rows say cloud. The web workspace stays local only.
+Team sessions never use a cloud provider.
+The sandbox marker guards against mistakes; it is not a security boundary.
 
 ## Opt-in live tests
 
@@ -163,10 +165,10 @@ Offline `npm test` never loads these. Against your configured provider:
 cd bloom && BLOOM_LIVE=1 npm run test:live
 ```
 
-At most 20 model calls per run. The suite reads the provider only from bloom's data directory (or `BLOOM_LIVE_DATA_DIR`), never from an endpoint environment variable.
+At most 20 model calls per run of the whole suite. The suite reads the provider only from bloom's data directory (or `BLOOM_LIVE_DATA_DIR`), never from an endpoint environment variable. When the configured provider is cloud, set `BLOOM_LIVE_ALLOW_CLOUD=1` as well; without that second flag the live suite skips before any request. Local providers need only `BLOOM_LIVE=1`.
 
 ## Residual risk
 
-Approval of each call is the boundary. `npm test` runs whatever the sandbox's `package.json` scripts say, and the model may have written those scripts in a write you approved. Commands can reach the network: npm is set offline and git is limited to local subcommands, but Bloom does not block network access from the process. The isolated `HOME` only changes an environment variable, so a command can still find your real home folder through the operating system. A detached grandchild process can outlive the call. Git reads the sandbox repository's own configuration. Use a throwaway sandbox, read every approval, and keep the sandbox away from folders you care about. [architecture.md](architecture.md) has the full command gate.
+Approval of each call is the boundary. `npm test` runs whatever the sandbox's `package.json` scripts say, and the model may have written those scripts in a write you approved. Commands can reach the network: npm is set offline (flags that change registry, cache or online mode are refused) and git is limited to local subcommands with fsmonitor, hooks and `diff.external` forced off, but Bloom does not block network access from the process. The isolated `HOME` only changes an environment variable, so a command can still find your real home folder through the operating system. A detached grandchild process can outlive the call. Writes under `.git/` are refused. Use a throwaway sandbox, read every approval, and keep the sandbox away from folders you care about. [architecture.md](architecture.md) has the full command gate.
 
-In cloud mode, tool results you approve, including file contents, leave the machine and are sent to the cloud provider. Reject any read you do not want off the machine.
+In cloud mode these leave the machine and go to the provider named in your config (for AI Studio, Google): each task you approve, Bloom's fixed tool instructions, short summaries of earlier tasks and answers in the same session, the model's own replies within the turn, and every tool result you approve, including file contents and command output. Bloom asks before each task is sent and before each tool call; the follow-up requests inside a turn carry only results you already approved and are sent without a further prompt. Your key travels only in the request's Authorization header. What the provider keeps, and for how long, is set by its terms, not by Bloom: Google's Gemini API terms say that on unpaid use, including AI Studio and free quota, Google uses submitted content and responses to improve its products. Use a throwaway sandbox and send nothing you would not publish.

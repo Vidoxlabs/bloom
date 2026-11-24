@@ -160,7 +160,8 @@ test('live-test-runbook-commands-exist', () => {
   for (const line of commands) {
     for (const part of line.split(/&&|;/).map(piece => piece.trim()).filter(Boolean)) {
       // Opt-in live tests set BLOOM_LIVE=1 before npm; strip that assignment only.
-      const words = part.replace(/^BLOOM_LIVE=1\s+/, '').split(/\s+/);
+      // Sandbox inspection may wrap git with env -u GEMINI_API_KEY.
+      const words = part.replace(/^BLOOM_LIVE=1\s+/, '').replace(/^env -u GEMINI_API_KEY\s+/, '').split(/\s+/);
       if (words[0] === 'cd' || words[0] === 'git') continue;
       if (words[0] === 'npm') {
         const name = words[1] === 'run' ? words[2] : words[1];

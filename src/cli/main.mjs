@@ -117,7 +117,7 @@ function cloudRefusal(provider) {
 }
 
 function sandboxRefusal() {
-  return 'Cloud providers only run inside a sandbox made by scripts/make-sandbox.mjs.';
+  return 'Cloud providers run only the coding loop (no --team), inside a sandbox made by scripts/make-sandbox.mjs.';
 }
 
 async function promptText(argument) {
@@ -151,7 +151,7 @@ async function runCommand(action, args, values) {
   let configured = values.demo || provider?.local;
   if (cloud) {
     if (!values['allow-cloud']) configured = false;
-    else if (!workspace || !isBloomSandbox(workspace)) {
+    else if (!workspace || !isBloomSandbox(workspace) || values.team) {
       if (!headless) nextLine = attachReader();
       renderer = values.json ? jsonRenderer({ stdout, headless, nextLine, policy }) : lineRenderer({ stdout, headless, nextLine, policy });
       return completion(runResult('refused', 'EGRESS_REFUSED'), sandboxRefusal(), values.json);

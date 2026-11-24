@@ -1,12 +1,11 @@
 // Opt-in live tests against the owner's configured provider. Never part of npm test or CI.
 // Run with: BLOOM_LIVE=1 npm run test:live
+// Cloud providers also need BLOOM_LIVE_ALLOW_CLOUD=1.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import { makeSandbox, sandboxGit } from '../../scripts/make-sandbox.mjs';
 import { dataPath } from '../../src/data-dir.mjs';
@@ -17,7 +16,6 @@ import { openCodingSession } from '../fixtures/coding-session.mjs';
 import { demoTask } from '../fixtures/demo-provider.mjs';
 
 const live = process.env.BLOOM_LIVE === '1';
-const bin = fileURLToPath(new URL('../../bin/bloom.mjs', import.meta.url));
 const dataDirectory = process.env.BLOOM_LIVE_DATA_DIR
   ? realpathSync(process.env.BLOOM_LIVE_DATA_DIR)
   : dataPath();
@@ -32,11 +30,25 @@ function capture() {
   };
 }
 
+function requireCloudFlag(provider) {
+  assert.ok(provider.local || process.env.BLOOM_LIVE_ALLOW_CLOUD === '1',
+    'Cloud live probe needs BLOOM_LIVE_ALLOW_CLOUD=1 as well.');
+}
+
+function leakCheck(blob, provider, credential) {
+  const host = (() => {
+    try { return new URL(provider.baseURL).host; }
+    catch { return provider.baseURL; }
+  })();
+  assert.ok(!blob.includes(provider.baseURL), 'configured base URL leaked');
+  if (host) assert.ok(!blob.includes(host), 'configured host leaked');
+  if (credential) assert.ok(!blob.includes(credential), 'configured credential leaked');
+}
+
 test('live-probe-passes', { skip }, async () => {
   const provider = readTerminalProvider(dataDirectory);
   assert.ok(provider, 'Configure a provider in the bloom data directory.');
-  assert.ok(provider.local || process.env.BLOOM_LIVE_ALLOW_CLOUD === '1',
-    'Cloud live probe needs BLOOM_LIVE_ALLOW_CLOUD=1 as well.');
+  requireCloudFlag(provider);
   const selection = terminalSelection(provider);
   const { credential } = selectProviders({ ...provider, terminal: true });
   const result = await probeProvider({ provider, ...selection, credential });
@@ -44,8 +56,7 @@ test('live-probe-passes', { skip }, async () => {
   for (const name of ['Reachability', 'Model', 'Streaming']) {
     assert.equal(result.checks.find(item => item.check === name)?.status, 'pass', name);
   }
-  const printed = JSON.stringify(result.checks);
-  assert.doesNotMatch(printed, /generativelanguage|googleapis|\/[Uu]sers\/|api[_-]?key|Bearer /i);
+  leakCheck(JSON.stringify(result.checks), provider, credential);
 });
 
 test('live-loop-fixes-sandbox', { skip }, async () => {
@@ -53,7 +64,7 @@ test('live-loop-fixes-sandbox', { skip }, async () => {
   assert.ok(provider, 'Configure a provider in the bloom data directory.');
   assert.ok(provider.local, 'live-loop-fixes-sandbox runs against a local provider only.');
   const selection = terminalSelection(provider);
-  const { teamProvider } = selectProviders({ ...provider, model: selection.backendModel, terminal: true });
+  const { teamProvider, credential } = selectProviders({ ...provider, model: selection.backendModel, terminal: true });
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'bloom-live-')));
   const sandbox = join(root, 'sandbox');
   const storeDir = join(root, 'data');
@@ -61,11 +72,11 @@ test('live-loop-fixes-sandbox', { skip }, async () => {
     makeSandbox(sandbox);
     const opened = openCodingSession({
       dataDirectory: storeDir, workspace: sandbox, provider: teamProvider, model: selection.backendModel,
+      runtime: { maxSteps: 18 },
     });
     const trace = capture();
     let calls = 0;
     const { events, ending } = await opened.run(demoTask, request => {
-      // Allow only the expected tools inside the sandbox; reject anything else.
       const allowed = new Set([
         'workspace.dir.list', 'workspace.file.read', 'workspace.text.search',
         'workspace.file.write', 'workspace.file.update', 'workspace.shell.execute', 'run.answer.create',
@@ -75,7 +86,7 @@ test('live-loop-fixes-sandbox', { skip }, async () => {
     }, event => {
       if (event.type === 'model.call') {
         calls += 1;
-        assert.ok(calls <= 20, 'live loop exceeded 20 model calls');
+        assert.ok(calls <= 18, 'live loop exceeded the coding-session call budget');
       }
       if (event.type === 'model.call' || event.type === 'tool.updated' || event.type === 'turn.finished') {
         trace.log({ type: event.type, data: event.data });
@@ -92,7 +103,7 @@ test('live-loop-fixes-sandbox', { skip }, async () => {
     assert.match(diff, /NOTES\.md/);
     assert.match(diff, /value <= end/);
     assert.doesNotMatch(diff, /package\.json/);
-    assert.ok(!trace.text().match(/generativelanguage|\/[Uu]sers\/|Bearer /i));
+    leakCheck(trace.text() + diff, provider, credential);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -101,12 +112,9 @@ test('live-loop-fixes-sandbox', { skip }, async () => {
 test('live-output-has-no-endpoint-or-key', { skip }, async () => {
   const provider = readTerminalProvider(dataDirectory);
   assert.ok(provider);
+  requireCloudFlag(provider);
   const selection = terminalSelection(provider);
   const { credential } = selectProviders({ ...provider, terminal: true });
   const result = await probeProvider({ provider, ...selection, credential });
-  const blob = JSON.stringify(result) + String(provider.baseURL) + String(credential ?? '');
-  // The probe result must not echo the configured address or key; the comparison below plants markers only in memory.
-  const planted = 'live-endpoint-marker-never-print';
-  assert.ok(!JSON.stringify(result).includes(planted));
-  assert.doesNotMatch(JSON.stringify(result.checks), /generativelanguage\.googleapis|[0-9]{1,3}(\.[0-9]{1,3}){3}|Bearer [A-Za-z0-9]/i);
+  leakCheck(JSON.stringify(result.checks) + JSON.stringify(result.profile ?? {}), provider, credential);
 });

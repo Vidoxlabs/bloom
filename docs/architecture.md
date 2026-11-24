@@ -164,11 +164,26 @@ repository metadata outside `.git/` can still be written if approved.
 
 A provider with `locality` set to `cloud` is refused in the terminal until
 `--allow-cloud` is passed, and only inside a folder created by
-`scripts/make-sandbox.mjs`. While cloud is on, Bloom asks before the first
-message leaves the machine and before every tool call, including reads. Model
-rows say cloud. Approved tool results, including file contents, are sent to the
-cloud provider. The web workspace stays local only. Opt-in live tests run with
-`BLOOM_LIVE=1 npm run test:live` and never from offline `npm test`.
+`scripts/make-sandbox.mjs` for the coding loop. Team sessions never use a cloud
+provider. While cloud is on, Bloom asks before the first message leaves the
+machine and before every tool call, including reads, and does not offer
+session-wide allow. Model rows say cloud. The web workspace stays local only.
+Opt-in live tests run with `BLOOM_LIVE=1 npm run test:live` (and
+`BLOOM_LIVE_ALLOW_CLOUD=1` when the provider is cloud) and never from offline
+`npm test`.
+
+In cloud mode these leave the machine and go to the provider named in your
+config (for AI Studio, Google): each task you approve, Bloom's fixed tool
+instructions, short summaries of earlier tasks and answers in the same session,
+the model's own replies within the turn, and every tool result you approve,
+including file contents and command output. Bloom asks before each task is sent
+and before each tool call; the follow-up requests inside a turn carry only
+results you already approved and are sent without a further prompt. Your key
+travels only in the request's Authorization header. What the provider keeps,
+and for how long, is set by its terms, not by Bloom: Google's Gemini API terms
+say that on unpaid use, including AI Studio and free quota, Google uses
+submitted content and responses to improve its products. Use a throwaway
+sandbox and send nothing you would not publish.
 
 ## Model profiles
 

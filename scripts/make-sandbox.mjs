@@ -25,8 +25,11 @@ function enclosingClone(path) {
 }
 
 export function sandboxGit(sandbox, ...args) {
-  return spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...args], {
-    cwd: sandbox, encoding: 'utf8', env: { ...process.env, ...identity, GIT_PAGER: 'cat' },
+  return spawnSync('git', [
+    '-c', 'core.fsmonitor=false', '-c', 'diff.external=', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...args,
+  ], {
+    cwd: sandbox, encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, ...identity, GIT_PAGER: 'cat', GIT_CONFIG_NOSYSTEM: '1' },
   });
 }
 

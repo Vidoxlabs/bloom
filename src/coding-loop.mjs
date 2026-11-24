@@ -211,7 +211,7 @@ export function createCodingRuntime({
         if (headless) return { stopReason: 'refusal' };
         const choice = await hooks.permission({
           title: 'Send this turn to a cloud model', kind: 'egress', effect: 'egress', toolId: 'cloud-message',
-          summary: 'first message', detail: 'Cloud model will receive:\n' + head(task, 4_000),
+          summary: 'first message', detail: 'Cloud model will receive Bloom\'s fixed tool instructions and:\n' + buildPrompt(task, memory.earlier, [], Number.MAX_SAFE_INTEGER),
           options: [
             { id: 'allow-once', kind: 'allow_once', label: 'Allow once' },
             { id: 'reject', kind: 'reject_once', label: 'Reject' },
@@ -285,12 +285,12 @@ export function createCodingRuntime({
           }
         }
         const digest = argumentDigest(toolId, args);
-        if (toolId !== SHELL && memory.allowances.has(digest)) {
+        if (toolId !== SHELL && !cloud && memory.allowances.has(digest)) {
           approval = 'session';
         } else {
           const options = [
             { id: 'allow-once', kind: 'allow_once', label: 'Allow once' },
-            ...(toolId === SHELL ? [] : [{ id: 'allow-session', kind: 'allow_session', label: 'Allow this exact call for the session' }]),
+            ...(toolId !== SHELL && !cloud ? [{ id: 'allow-session', kind: 'allow_session', label: 'Allow this exact call for the session' }] : []),
             { id: 'reject', kind: 'reject_once', label: 'Reject' },
           ];
           const choice = await hooks.permission({

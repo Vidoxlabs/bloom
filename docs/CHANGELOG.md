@@ -18,11 +18,8 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 
 ### Changed
 
-- Terminal cloud providers need `--allow-cloud` inside a make-sandbox folder; while cloud is on, reads ask first and model rows say cloud (CAP-16, bloom#9).
-
-### Changed
-
 - Harden the command gate: distinct refusal reasons, linked-folder argument containment, `.git` write refusal, git config overrides, npm network-flag refusal, attached short-option paths, `node --run` refusal, and allow-only approvals (CAP-04, bloom#5).
+- Terminal cloud providers need `--allow-cloud` inside a make-sandbox folder; while cloud is on, reads ask first, session allow is off, team sessions are refused, and model rows say cloud (CAP-16, bloom#9).
 
 ### Fixed
 
