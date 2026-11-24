@@ -14,11 +14,10 @@ import { action, demoReplies, demoTask, scriptedProvider, testCommand } from './
 
 const fixtureFile = new URL('./fixtures/demo-session.jsonl', import.meta.url);
 
-function folders(t) {
+function folders() {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'bloom-loop-')));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const workspace = copyDemoRepo(join(directory, 'workspace'));
-  return { dataDirectory: join(directory, 'data'), workspace };
+  return { directory, dataDirectory: join(directory, 'data'), workspace };
 }
 
 async function withoutNetwork(t) {
@@ -30,8 +29,14 @@ async function withoutNetwork(t) {
 }
 
 async function session(t, options) {
-  const opened = openCodingSession({ ...folders(t), ...options });
-  t.after(() => opened.close());
+  // Close the store before deleting the temp tree. After hooks run in registration
+  // order; registering rm first left vibloom.sqlite open on Windows (EBUSY).
+  const { directory, dataDirectory, workspace } = folders();
+  const opened = openCodingSession({ dataDirectory, workspace, ...options });
+  t.after(async () => {
+    await opened.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   return opened;
 }
 
@@ -76,6 +81,11 @@ test('coding-loop-fixes-fixture-offline', async t => {
   assert.match(readFileSync(join(workspace, 'src/range.mjs'), 'utf8'), /value <= end/);
   assert.match(readFileSync(join(workspace, 'NOTES.md'), 'utf8'), /^demo-repo is a tiny Node project/);
   assert.equal(network.length, 0);
+});
+
+test('demo-session-fixture-is-lf', () => {
+  const bytes = readFileSync(fixtureFile);
+  assert.equal(bytes.includes(0x0d), false, 'the recorded session must stay LF so Windows matches Unix');
 });
 
 test('demo-session-export-is-byte-stable', async t => {
