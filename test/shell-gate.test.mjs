@@ -358,6 +358,11 @@ test('file-tools-refuse-writes-under-dot-git', async t => {
       path,
     );
   }
+  // A .GIT path that does not exist yet must still refuse before any lookup.
+  await assert.rejects(
+    tools.execute('workspace.file.write', { path: '.GIT/objects/pack/new', content: 'bad\n' }),
+    { code: 'WORKSPACE_DOT_GIT_REFUSED' },
+  );
   await assert.rejects(
     tools.execute('workspace.file.update', { path: '.git/config', oldText: '[core]', newText: '[core]\nfsmonitor = true' }),
     { code: 'WORKSPACE_DOT_GIT_REFUSED' },
