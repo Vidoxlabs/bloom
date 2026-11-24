@@ -75,7 +75,7 @@ export function walkWorkspace(directory, { includeHidden = false, include = [], 
   const bounded = bounds(limits);
   const result = { files: [], omitted: [], unknown: [] };
   const omit = (path, reason) => result.omitted.push({ path, reason });
-  const unknown = (path, reason) => result.unknown.push({ path, reason });
+  const unknown = (path, reason, detail) => result.unknown.push(detail ? { path, reason, detail } : { path, reason });
   let entriesLeft = bounded.maxEntries;
   let bytesLeft = bounded.maxBytes;
   let root;
@@ -115,8 +115,10 @@ export function walkWorkspace(directory, { includeHidden = false, include = [], 
         bytesLeft -= bytes.length;
         if (binary(bytes)) { omit(path, 'binary'); continue; }
         result.files.push({ path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
-      } catch {
-        unknown(path, entry.isSymbolicLink() ? 'symlink' : 'read-failed');
+      } catch (error) {
+        // The reason alone cannot tell a permission denial from a changed entry, and this
+        // path is where a platform's disagreement with the record surfaces.
+        unknown(path, entry.isSymbolicLink() ? 'symlink' : 'read-failed', error?.code ?? error?.message);
       }
     }
   }
