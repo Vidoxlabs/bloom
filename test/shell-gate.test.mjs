@@ -5,10 +5,15 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { createWorkspaceTools, workspaceCommandAccess } from '../src/workspace-tools.mjs';
+import { ALLOWED_COMMANDS, createWorkspaceTools, workspaceCommandAccess } from '../src/workspace-tools.mjs';
 
 const nodeDirectory = dirname(process.execPath);
 const refused = { code: 'WORKSPACE_COMMAND_REFUSED' };
+// Absolute PATH entries so node, npm and git resolve; refusals must be by rule, not "not found".
+function resolvedSearchPath() {
+  return String(process.env.PATH ?? '').split(delimiter).filter(entry => entry && isAbsolute(entry)).join(delimiter);
+}
+const NOT_FOUND = 'The allowed command was not found on the fixed search path.';
 // A probe that leaves a marker file when it runs, so a refusal can prove nothing ran.
 const probe = "import { writeFileSync } from 'node:fs'; writeFileSync('ran.txt', JSON.stringify(process.argv.slice(2)));\n";
 
@@ -20,7 +25,7 @@ async function fixture(t, options = {}) {
   await Promise.all([mkdir(root), mkdir(outside)]);
   await writeFile(join(root, 'probe.mjs'), probe);
   await writeFile(join(outside, 'secret.txt'), 'outside');
-  const tools = createWorkspaceTools(root, { commands: workspaceCommandAccess, searchPath: nodeDirectory, ...options });
+  const tools = createWorkspaceTools(root, { commands: workspaceCommandAccess, searchPath: resolvedSearchPath(), ...options });
   return { root, outside, tools };
 }
 
@@ -165,7 +170,7 @@ test('shell-home-is-isolated', async t => {
   assert.notEqual(again.HOME, environment.HOME);
 });
 
-test('shell-home-cleanup-failure-flagged', { skip: process.platform === 'win32' && 'POSIX directory modes' }, async t => {
+test('shell-home-cleanup-failure-flagged', { skip: (process.platform === 'win32' && 'POSIX directory modes') || (process.getuid?.() === 0 && 'root ignores directory modes') }, async t => {
   const { root, tools } = await fixture(t);
   await writeFile(join(root, 'lock.mjs'), [
     "import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';",
@@ -207,4 +212,192 @@ test('command-access-has-one-production-caller', async () => {
   const source = await readFile(new URL('../src/workspace-tools.mjs', import.meta.url), 'utf8');
   assert.match(source, /^export const workspaceCommandAccess = Symbol\(/m);
   assert.doesNotMatch(source, /uncontained/);
+});
+
+
+test('shell-allowlist-is-exactly-node-npm-git', () => {
+  assert.deepEqual(ALLOWED_COMMANDS, ['node', 'npm', 'git']);
+});
+
+test('shell-refuses-git-push-by-rule', async t => {
+  const { root, tools } = await fixture(t);
+  await assert.rejects(
+    tools.execute('workspace.shell.execute', { command: 'git', args: ['push'] }),
+    error => {
+      assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+      assert.equal(error.message, 'git is limited to status, diff, log, add and commit.');
+      assert.notEqual(error.message, NOT_FOUND);
+      return true;
+    },
+  );
+  await assertNothingRan(root);
+});
+
+test('shell-refuses-git-config-flag-by-rule', async t => {
+  const { root, tools } = await fixture(t);
+  await assert.rejects(
+    tools.execute('workspace.shell.execute', { command: 'git', args: ['-c', 'core.pager=probe', 'status'] }),
+    error => {
+      assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+      assert.equal(error.message, 'That git option redirects the repository or sets config.');
+      assert.notEqual(error.message, NOT_FOUND);
+      return true;
+    },
+  );
+  await assertNothingRan(root);
+});
+
+test('shell-refuses-npm-exec-by-rule', async t => {
+  const { root, tools } = await fixture(t);
+  await assert.rejects(
+    tools.execute('workspace.shell.execute', { command: 'npm', args: ['exec', 'probe'] }),
+    error => {
+      assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+      assert.equal(error.message, 'npm exec, x, explore and edit are not allowed.');
+      assert.notEqual(error.message, NOT_FOUND);
+      return true;
+    },
+  );
+  await assertNothingRan(root);
+});
+
+test('shell-refusal-reason-is-not-not-found', async t => {
+  const { tools } = await fixture(t);
+  const cases = [
+    ['git', ['push'], 'git is limited to status, diff, log, add and commit.'],
+    ['git', ['-c', 'a=b', 'status'], 'That git option redirects the repository or sets config.'],
+    ['npm', ['exec', 'x'], 'npm exec, x, explore and edit are not allowed.'],
+    ['node', ['--eval', '1'], 'That node option evaluates code or loads modules.'],
+  ];
+  for (const [command, args, reason] of cases) {
+    await assert.rejects(tools.checkCommand({ command, args }), error => {
+      assert.equal(error.message, reason);
+      assert.notEqual(error.message, NOT_FOUND);
+      return true;
+    }, `${command} ${args.join(' ')}`);
+  }
+});
+
+test('shell-refuses-new-file-under-symlinked-dir', async t => {
+  const { root, outside, tools } = await fixture(t);
+  await symlink(outside, join(root, 'link'), 'junction');
+  await assert.rejects(
+    tools.execute('workspace.shell.execute', { command: 'git', args: ['log', '--output=link/new.txt'] }),
+    error => {
+      assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+      assert.equal(error.message, 'Command arguments must stay inside the workspace.');
+      return true;
+    },
+  );
+  await assert.rejects(readFile(join(outside, 'new.txt')), { code: 'ENOENT' });
+});
+
+test('shell-refuses-npm-network-flags', async t => {
+  const { root, tools } = await fixture(t);
+  const flags = [
+    '--offline', '--no-offline', '--prefer-online', '--registry', '--userconfig',
+    '--globalconfig', '--cache', '--proxy', '--https-proxy',
+  ];
+  for (const flag of flags) {
+    for (const args of [[flag, 'https://example.invalid'], [`${flag}=https://example.invalid`]]) {
+      await assert.rejects(
+        tools.execute('workspace.shell.execute', { command: 'npm', args: ['test', ...args] }),
+        error => {
+          assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+          assert.equal(error.message, 'That npm option changes the registry, cache or online mode.');
+          assert.notEqual(error.message, NOT_FOUND);
+          return true;
+        },
+        args.join(' '),
+      );
+    }
+  }
+  await assertNothingRan(root);
+});
+
+test('shell-refuses-attached-short-option-paths', async t => {
+  const { root, outside, tools } = await fixture(t);
+  const outsideFile = join(outside, 'out.patch');
+  await assert.rejects(
+    tools.execute('workspace.shell.execute', { command: 'git', args: ['diff', `-O${outsideFile}`] }),
+    error => {
+      assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+      assert.equal(error.message, 'Command arguments must stay inside the workspace.');
+      return true;
+    },
+  );
+  await assertNothingRan(root);
+});
+
+test('shell-refuses-node-run', async t => {
+  const { root, tools } = await fixture(t);
+  for (const args of [['--run', 'test'], ['--run=test']]) {
+    await assert.rejects(
+      tools.execute('workspace.shell.execute', { command: 'node', args }),
+      error => {
+        assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+        assert.equal(error.message, 'That node option evaluates code or loads modules.');
+        assert.notEqual(error.message, NOT_FOUND);
+        return true;
+      },
+    );
+  }
+  await assertNothingRan(root);
+});
+
+test('file-tools-refuse-writes-under-dot-git', async t => {
+  const { root, tools } = await fixture(t);
+  await mkdir(join(root, '.git', 'hooks'), { recursive: true });
+  await mkdir(join(root, 'nested', '.git'), { recursive: true });
+  await writeFile(join(root, '.git', 'config'), '[core]\n');
+  await writeFile(join(root, 'nested', '.git', 'config'), '[core]\n');
+  for (const path of ['.git/config', '.git/hooks/pre-commit', '.GIT/HEAD', 'nested/.git/config']) {
+    await assert.rejects(
+      tools.execute('workspace.file.write', { path, content: 'bad\n' }),
+      { code: 'WORKSPACE_DOT_GIT_REFUSED' },
+      path,
+    );
+  }
+  await assert.rejects(
+    tools.execute('workspace.file.update', { path: '.git/config', oldText: '[core]', newText: '[core]\nfsmonitor = true' }),
+    { code: 'WORKSPACE_DOT_GIT_REFUSED' },
+  );
+});
+
+test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
+  const { root, tools } = await fixture(t);
+  const marker = join(root, 'hook-ran.txt');
+  const hook = process.platform === 'win32'
+    ? `@echo off\necho ran > hook-ran.txt\n`
+    : `#!/bin/sh\necho ran > hook-ran.txt\n`;
+  const fsmonitor = process.platform === 'win32'
+    ? `@echo off\necho ran > hook-ran.txt\n`
+    : `#!/bin/sh\necho ran > hook-ran.txt\n`;
+  await mkdir(join(root, '.git', 'hooks'), { recursive: true });
+  await writeFile(join(root, 'fsmonitor.sh'), fsmonitor);
+  await writeFile(join(root, '.git', 'hooks', 'pre-commit'), hook);
+  if (process.platform !== 'win32') {
+    await chmod(join(root, 'fsmonitor.sh'), 0o755);
+    await chmod(join(root, '.git', 'hooks', 'pre-commit'), 0o755);
+  }
+  await writeFile(join(root, '.git', 'config'), [
+    '[core]',
+    `	fsmonitor = ${join(root, 'fsmonitor.sh')}`,
+    '	hooksPath = .git/hooks',
+    '',
+  ].join('\n'));
+  // Minimal git repo files so status and commit can run.
+  await writeFile(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  await mkdir(join(root, '.git', 'refs', 'heads'), { recursive: true });
+  await mkdir(join(root, '.git', 'objects'), { recursive: true });
+  await writeFile(join(root, 'tracked.txt'), 'one\n');
+  const status = await tools.execute('workspace.shell.execute', { command: 'git', args: ['status'] });
+  assert.notEqual(status.exitCode, null);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  await tools.execute('workspace.shell.execute', { command: 'git', args: ['add', 'tracked.txt'] });
+  const commit = await tools.execute('workspace.shell.execute', {
+    command: 'git', args: ['commit', '-m', 'Add tracked'],
+  });
+  assert.ok(commit.exitCode === 0 || commit.exitCode === 1 || commit.exitCode === 128, 'commit ran under the gate');
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
 });
