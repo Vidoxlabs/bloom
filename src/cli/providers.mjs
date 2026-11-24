@@ -4,7 +4,7 @@ import { demoAdapter } from '../demo.mjs';
 import { endpointRedactor } from '../endpoint-privacy.mjs';
 
 export function selectProviders({
-  demo, model, env = process.env, headless = false, profile = null, cloud = false, ...configured
+  demo, model, env = process.env, headless = false, profile = null, cloud = false, autonomous = null, ...configured
 }) {
   const defaultModel = model ?? env.BLOOM_MODEL;
   const redact = !demo && configured.baseURL ? endpointRedactor(configured.baseURL) : undefined;
@@ -16,6 +16,6 @@ export function selectProviders({
     : unconfiguredProvider;
   // A configured endpoint also drives the coding runtime, which a workspace session uses.
   const coding = !demo && configured.baseURL
-    ? [createCodingRuntime({ provider: teamProvider, headless, profile, cloud })] : [];
+    ? [createCodingRuntime({ provider: teamProvider, headless, profile, cloud, autonomous })] : [];
   return { teamProvider, adapters: demo ? [demoAdapter] : coding, redact, credential };
 }

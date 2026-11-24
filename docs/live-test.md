@@ -83,10 +83,20 @@ At the prompt, type the same task the rehearsal uses:
 Create NOTES.md with one line describing this project. Run the tests, fix the failing test, run the tests again, and finish with a short summary.
 ```
 
-Read each approval before you answer it. Approve writes and test commands in the sandbox, and reject anything else. When the loop finishes, look at what changed:
+Read each approval before you answer it. Approve writes and test commands in the sandbox, and reject anything else. When the loop finishes, inspect the sandbox. Mark the new note as intent to add so the diff includes it.
 
 ```bash
-cd <sandbox folder> && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager status && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager diff --no-ext-diff
+cd <sandbox folder> && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager status
+env -u GEMINI_API_KEY git -c core.fsmonitor=false add --intent-to-add -- NOTES.md
+env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager diff --no-ext-diff
+```
+
+From the folder that holds your checkouts, list the sessions and export the one you just ran. Advance the replay one event per Enter.
+
+```bash
+cd bloom && node bin/bloom.mjs sessions list
+cd bloom && node bin/bloom.mjs sessions export <session id> --jsonl --out <file>
+cd bloom && node bin/bloom.mjs replay <file> --step
 ```
 
 The run passes when all of these hold:
@@ -156,6 +166,14 @@ cd bloom && node bin/bloom.mjs chat --workspace <sandbox folder> --allow-cloud
 While cloud is on, Bloom asks before the first message leaves the machine and before every tool call, including reads. Model rows say cloud. The web workspace stays local only.
 Team sessions never use a cloud provider.
 The sandbox marker guards against mistakes; it is not a security boundary.
+
+## Working with an autonomous agent
+
+`--autonomous` is an explicit opt-in for terminal `chat` or `run --headless` with a local provider and a fresh directory created by `scripts/make-sandbox.mjs`. Cloud providers and team sessions are refused. The first live verification above uses manual approvals.
+
+An autonomous turn writes files and runs permitted commands without prompting. The command gate remains active, a refusal stops the turn, and automatic approvals appear as `auto` in the trace. Each turn is limited to 20 model calls, 20 tool calls, and 120 seconds. On `run`, `--max-calls` can lower the model-call limit.
+
+The marker does not restrict what a subprocess can access. Allowed programs run with your account's permissions and can reach the network, including through project scripts. Use a throwaway project you trust and inspect the trace and diff after the turn.
 
 ## Opt-in live tests
 

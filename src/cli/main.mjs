@@ -20,7 +20,7 @@ import { runResult, runTurn } from './turn.mjs';
 const string = { type: 'string' };
 const flag = { type: 'boolean' };
 const common = { help: { ...flag, short: 'h' }, version: { ...flag, short: 'v' }, 'data-dir': string };
-const sharedRun = { model: string, workspace: string, demo: flag, 'allow-cloud': flag };
+const sharedRun = { model: string, workspace: string, demo: flag, 'allow-cloud': flag, autonomous: flag };
 const commands = {
   chat: { ...sharedRun, team: string },
   run: { ...sharedRun, headless: flag, json: flag, 'max-calls': string, 'token-limit': string, 'approve-policy': string, 'output-last-message': string },
@@ -30,8 +30,8 @@ const commands = {
   memory: { team: string, text: string, confirm: flag },
 };
 const help = {
-  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo] [--allow-cloud]  (--workspace without --team runs the coding loop)',
-  run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo] [--allow-cloud]',
+  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo] [--allow-cloud] [--autonomous]  (--workspace without --team runs the coding loop)',
+  run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo] [--allow-cloud] [--autonomous]',
   doctor: 'bloom doctor [--json] [--probe] [--allow-cloud]  (--probe asks the configured provider what it supports and saves its profile)',
   sessions: 'bloom sessions list [--json] | show ID [--json] | export ID --jsonl [--out FILE]',
   replay: 'bloom replay FILE [--json] [--step]',
@@ -148,6 +148,11 @@ async function runCommand(action, args, values) {
   const provider = values.demo ? null : readTerminalProvider(directory);
   const workspace = values.workspace ? workspacePath(resolve(values.workspace)) : '';
   const cloud = Boolean(provider && !provider.local);
+  if (values.autonomous && (!provider?.local || values.team || !workspace || !isBloomSandbox(workspace))) {
+    renderer = values.json ? jsonRenderer({ stdout, headless }) : lineRenderer({ stdout, headless });
+    return completion(runResult('refused', 'AUTONOMOUS_REFUSED'),
+      'Autonomous mode needs a local coding session in a sandbox made by scripts/make-sandbox.mjs.', values.json);
+  }
   let configured = values.demo || provider?.local;
   if (cloud) {
     if (!values['allow-cloud']) configured = false;
@@ -173,7 +178,8 @@ async function runCommand(action, args, values) {
   if (provider && /-cloud$/i.test(model) && !cloud) {
     return completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(), values.json);
   }
-  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless, profile, cloud }, workspace);
+  const autonomous = values.autonomous ? { callLimit: limits.callLimit } : null;
+  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless, profile, cloud, autonomous }, workspace);
   // A workspace without a team name opens the coding loop in that folder.
   const coding = !values.demo && workspace && !values.team;
   const session = values.demo ? harness.createSession({ model })

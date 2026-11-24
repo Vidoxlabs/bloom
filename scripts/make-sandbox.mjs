@@ -25,8 +25,9 @@ function enclosingClone(path) {
 }
 
 export function sandboxGit(sandbox, ...args) {
+  const commandArgs = args[0] === 'diff' ? ['diff', '--no-ext-diff', ...args.slice(1)] : args;
   return spawnSync('git', [
-    '-c', 'core.fsmonitor=false', '-c', 'diff.external=', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...args,
+    '-c', 'core.fsmonitor=false', '-c', 'diff.external=', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...commandArgs,
   ], {
     cwd: sandbox, encoding: 'utf8',
     env: { PATH: process.env.PATH, HOME: process.env.HOME, ...identity, GIT_PAGER: 'cat', GIT_CONFIG_NOSYSTEM: '1' },

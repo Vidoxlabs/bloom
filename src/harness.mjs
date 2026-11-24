@@ -27,6 +27,7 @@ function modelId(value) {
 const endStates = new Map([
   ['end_turn', 'finished'], ['cancelled', 'stopped'], ['refusal', 'refused'],
   ['max_tokens', 'limit'], ['max_turn_requests', 'limit'], ['malformed', 'malformed'],
+  ['max_tool_calls', 'limit'], ['max_wall_time', 'limit'],
   ['rate_limited', 'rate-limited'],
 ]);
 

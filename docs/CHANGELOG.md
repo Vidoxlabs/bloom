@@ -15,6 +15,7 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 - `bloom doctor --probe` model profile capture, with the coding loop's budget and streaming taken from the saved profile (CAP-16, bloom#7).
 - Live-test kit: a sandbox maker, the web workspace's coding view with model rows, tool rows and approval detail, and the `docs/live-test.md` runbook (CAP-04, bloom#8).
 - Cloud provider opt-in with `--allow-cloud` in a make-sandbox folder, Gemini OpenAI-compatible probe and error mapping, and opt-in `npm run test:live` (CAP-16, bloom#9).
+- Add opt-in autonomous terminal coding for marked local sandboxes, with bounded turns and automatic approval trace rows (CAP-04, bloom#10).
 
 ### Changed
 
@@ -26,6 +27,7 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 ### Fixed
 
 - Verify command refusals before approval, reject relative command-search entries and probe redirects, preserve full approval text, and classify named Google authentication errors before generic HTTP errors (CAP-04, bloom#10).
+- Include the new note in the sandbox diff and verify the exact changed paths in the local-provider test (CAP-04, bloom#10).
 
 - Check Windows metadata paths against the resolved `.git` directory and use Git to configure the command gate test repository (CAP-04, bloom#5).
 - Close the coding-loop test store before deleting its temp tree, and keep fixtures as LF, so Windows CI no longer fails on EBUSY unlinks or CRLF session exports (CAP-04, bloom#5).

@@ -14,6 +14,7 @@ const finalStatuses = new Set(['completed', 'failed', 'denied', 'refused', 'inva
 function traceRow(at, data) {
   const parts = [clockTime(at), data.toolId, data.summary, data.status];
   if (data.approval === 'session') parts.push('allowed for session');
+  if (data.approval === 'auto') parts.push('auto');
   if (data.timedOut) parts.push('timed out');
   else if (data.exitCode !== undefined && data.exitCode !== null) parts.push('exit ' + data.exitCode);
   if (Number.isSafeInteger(data.bytes)) parts.push(data.bytes + ' B');

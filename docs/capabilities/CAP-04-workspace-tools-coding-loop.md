@@ -108,8 +108,11 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `D29` Decided 2026-11-24 in bloom#9: Cloud opt-in for AI Studio. How should bloom allow a cloud provider? Owner's answer, verbatim (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
 - `D30` Decided 2026-11-24 in bloom#9: May docs and tests name GEMINI_API_KEY as the example variable? Owner's answer, verbatim (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
 - `D31` Decided 2026-11-24 in bloom#9: Live tests opt in with BLOOM_LIVE=1 and npm run test:live, at most 20 model calls? Owner's answer, verbatim (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- `D32` Decided 2026-11-24 in bloom#10: For Bloom autonomy, should I use the proposed local-only `--autonomous` mode with sandbox marking, hard budgets, automatic trace entries, and a stopped turn on tool refusal? Owner's answer, verbatim: "Use the proposed mode".
 
 ## Evidence
+
+- `test/autonomous.test.mjs` exercises both terminal entry points, local marked sandbox admission, budget stops, trace rows and shell refusals with fixture providers.
 
 - The shell and Git gate tests cover relative search paths and pre-approval refusal. The browser fixture verifies literal text and complete approval detail. Provider fixtures exercise redirects, named Google failures and both second-flag checks with synthetic requests.
 
@@ -121,6 +124,8 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `CAP-04.2`: `test/workspace-tools.test.mjs` exercises file path containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, the disabled-by-default command gate, command environment, and timeout.
 
 ## Changes
+
+- 2026-11-24. Add opt-in autonomous terminal coding in local marked sandboxes and record D32.
 
 - 2026-11-24. Cover command refusal before approval, keep approval details as text, and separate command and provider test modules.
 

@@ -110,6 +110,8 @@ Command rows carry the tail of the command output.
 
 The [command gate](command-gate.md) specifies allowed programs, path checks, approvals and residual risk.
 
+Terminal `--autonomous` runs eligible local coding turns without permission prompts and labels approved tool rows `auto`. The [runbook](live-test.md#working-with-an-autonomous-agent) describes budgets and command isolation limits.
+
 ## Cloud providers
 
 A provider with `locality` set to `cloud` is refused in the terminal until

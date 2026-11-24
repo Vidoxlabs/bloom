@@ -6,12 +6,15 @@ import { performance } from 'node:perf_hooks';
 
 import { workspaceToolPack } from '@vidoxlabs/drosera';
 import { validateValue } from '@vidoxlabs/seed';
+import { autonomousLimits, beforeAbort, startAutonomousDeadline } from './autonomous-budget.mjs';
 import { BloomError } from './errors.mjs';
 import { adoptProvider } from './provider.mjs';
+import { isBloomSandbox } from './sandbox-marker.mjs';
 import { createWorkspaceTools, workspaceCommandAccess } from './workspace-tools.mjs';
 
 const FINISH = 'run.answer.create';
 const SHELL = 'workspace.shell.execute';
+const pathRefused = new Set(['WORKSPACE_PATH_OUTSIDE', 'WORKSPACE_DOT_GIT_REFUSED', 'WORKSPACE_COMMAND_REFUSED']);
 const DENIED = 'denied by owner';
 const ACTION_BLOCK = /```json[ \t]*\r?\n([\s\S]*?)\r?\n?```/g;
 const DEFAULT_PROMPT_CHARS = 24_000;
@@ -35,7 +38,7 @@ function describeSchema(schema) {
   }).join(', ');
 }
 
-function systemPrompt(faces, headless) {
+function systemPrompt(faces, headless, autonomous) {
   const tools = faces.map(face => `- ${face.id} (${face.effect}): ${face.summary} Args: { ${describeSchema(face.inputSchema)} }`);
   return [
     'You are a coding agent working inside one workspace folder. You act only through tools.',
@@ -46,7 +49,7 @@ function systemPrompt(faces, headless) {
     'Rules:',
     '- Use paths relative to the workspace. Never use absolute paths or "..".',
     '- workspace.shell.execute runs only node, npm, or git (status, diff, log, add, commit), with args as a list.',
-    headless
+    autonomous ? '- Writes and permitted commands run automatically. A refused call stops the turn.' : headless
       ? '- This run is read-only. Writes and commands are refused.'
       : '- The owner approves every write and every command. If a call is denied, choose another approach.',
     `- When the task is done, call ${FINISH} with a short summary. That ends the run.`,
@@ -163,6 +166,7 @@ export function createCodingRuntime({
   provider,
   headless = false,
   cloud = false,
+  autonomous = null,
   maxSteps = 40,
   profile = null,
   allowedTools = workspaceToolPack.ids(),
@@ -177,13 +181,14 @@ export function createCodingRuntime({
   let adopted = adoptProvider(provider);
   const admitted = new Set(allowedTools);
   const faces = workspaceToolPack.faces.filter(face => admitted.has(face.id));
-  const system = systemPrompt(faces, headless);
+  const system = systemPrompt(faces, headless, autonomous);
   const config = Object.freeze(codingConfig(profile));
   const budget = config.promptChars;
   const streaming = config.streaming;
   const sessions = new Map();
+  const automatic = autonomous ? autonomousLimits(autonomous) : null;
 
-  async function run({ workspace, nativeId, model: requested, prompt: task, signal }, hooks) {
+  async function runLoop({ workspace, nativeId, model: requested, prompt: task, signal }, hooks) {
     // A session opened without a model, as the web form opens one, uses the provider's default.
     const model = requested ?? adopted.defaultModel;
     const id = nativeId ?? newId();
@@ -194,6 +199,9 @@ export function createCodingRuntime({
     const steps = [];
     let repairs = 0;
     let messageApproved = !cloud;
+    let toolCalls = 0;
+    const callLimit = automatic ? Math.min(maxSteps, automatic.callLimit) : maxSteps;
+    const bounded = automatic ? operation => beforeAbort(operation, signal) : operation => operation();
     const elapsed = started => Math.max(0, Math.round(clock() - started));
 
     // One repair turn is shared by argument and output checks; a call that runs resets it.
@@ -205,8 +213,9 @@ export function createCodingRuntime({
       return true;
     };
 
-    for (let call = 1; call <= maxSteps; call += 1) {
+    for (let call = 1; call <= callLimit; call += 1) {
       if (signal.aborted) return { stopReason: 'cancelled' };
+      if (automatic && toolCalls >= automatic.toolLimit) return { stopReason: 'max_tool_calls' };
       if (cloud && !messageApproved) {
         if (headless) return { stopReason: 'refusal' };
         const choice = await hooks.permission({
@@ -224,10 +233,10 @@ export function createCodingRuntime({
       const started = clock();
       let generation;
       try {
-        generation = await adopted.generate({
+        generation = await bounded(() => adopted.generate({
           system, prompt: buildPrompt(task, memory.earlier, steps, budget), model, signal,
           ...(streaming ? { onDelta: text => { if (!signal.aborted) hooks.emit('assistant.delta', { text }); } } : {}),
-        });
+        }));
       } catch (error) {
         if (signal.aborted) return { stopReason: 'cancelled' };
         if (error instanceof BloomError && error.code === 'PROVIDER_RATE_LIMITED') {
@@ -263,11 +272,12 @@ export function createCodingRuntime({
       const finishRow = (status, details = {}) => hooks.emit('tool.updated', { ...row, status, ...details });
       const toolStarted = clock();
       let approval = 'none';
+      toolCalls += 1;
       // Cloud mode asks before every tool, including reads, because results leave the machine.
       const needsApproval = cloud || face.effect !== 'read';
 
       if (needsApproval) {
-        if (headless) {
+        if (headless && !automatic) {
           finishRow('refused', { durationMs: elapsed(toolStarted), approval: 'headless' });
           steps.push({ reply, observation: `${DENIED}: this run is headless and cannot write or run commands.` });
           repairs = 0;
@@ -275,17 +285,21 @@ export function createCodingRuntime({
         }
         if (toolId === SHELL) {
           try {
-            await tools.checkCommand(args);
+            await bounded(() => tools.checkCommand(args));
           } catch (error) {
+            if (signal.aborted) return { stopReason: 'cancelled' };
             if (!(error instanceof BloomError)) throw error;
             finishRow('refused', { durationMs: elapsed(toolStarted), reason: error.code });
+            if (automatic) return { stopReason: 'refusal' };
             steps.push({ reply, observation: 'refused: ' + error.message });
             repairs = 0;
             continue;
           }
         }
-        const digest = argumentDigest(toolId, args);
-        if (toolId !== SHELL && !cloud && memory.allowances.has(digest)) {
+        const digest = automatic ? null : argumentDigest(toolId, args);
+        if (automatic) {
+          approval = 'auto';
+        } else if (toolId !== SHELL && !cloud && memory.allowances.has(digest)) {
           approval = 'session';
         } else {
           const options = [
@@ -312,11 +326,16 @@ export function createCodingRuntime({
 
       let result;
       try {
-        result = await tools.execute(toolId, args, { signal });
+        result = await bounded(() => tools.execute(toolId, args, { signal }));
       } catch (error) {
-        if (signal.aborted) return { stopReason: 'cancelled' };
+        if (signal.aborted) {
+          if (automatic) finishRow('failed', { durationMs: elapsed(toolStarted), approval, timedOut: true });
+          return { stopReason: 'cancelled' };
+        }
         if (!(error instanceof BloomError)) throw error;
-        finishRow(error.code === 'WORKSPACE_COMMAND_REFUSED' ? 'refused' : 'failed', { durationMs: elapsed(toolStarted), approval, reason: error.code });
+        const refused = error.code === 'WORKSPACE_COMMAND_REFUSED' || (automatic && pathRefused.has(error.code));
+        finishRow(refused ? 'refused' : 'failed', { durationMs: elapsed(toolStarted), approval, reason: error.code });
+        if (automatic && refused) return { stopReason: 'refusal' };
         steps.push({ reply, observation: 'failed: ' + error.message });
         repairs = 0;
         continue;
@@ -354,6 +373,18 @@ export function createCodingRuntime({
       steps.push({ reply, observation: observationText(toolId, result) });
     }
     return { stopReason: 'max_turn_requests' };
+  }
+
+  async function run(request, hooks) {
+    if (!automatic) return runLoop(request, hooks);
+    if (cloud || !isBloomSandbox(request.workspace)) return { stopReason: 'refusal' };
+    const deadline = startAutonomousDeadline(request.signal, automatic.wallMs);
+    try {
+      const result = await runLoop({ ...request, signal: deadline.signal }, hooks);
+      return deadline.expired ? { stopReason: 'max_wall_time' } : result;
+    } finally {
+      deadline.close();
+    }
   }
 
   return {

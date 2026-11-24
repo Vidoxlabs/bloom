@@ -77,7 +77,7 @@ function serializeWrite(target, operation) {
   });
 }
 
-async function replaceFile(root, target, contents, previousMode) {
+async function replaceFile(root, target, contents, previousMode, signal) {
   const temporary = join(dirname(target), temporaryPrefix + randomUUID());
   if (await canonicalTarget(root, target, true) !== target) throw outsideWorkspace();
   const handle = await open(temporary, 'wx');
@@ -89,6 +89,7 @@ async function replaceFile(root, target, contents, previousMode) {
       await handle.close();
     }
     if (await canonicalTarget(root, target, true) !== target) throw outsideWorkspace();
+    signal?.throwIfAborted();
     await rename(temporary, target);
   } finally {
     await rm(temporary, { force: true });
@@ -279,7 +280,7 @@ export function createWorkspaceTools(workspace, {
             contents = textArgument(args.content, 'content', true);
           }
           if (signal?.aborted) throw cancelled();
-          await replaceFile(root, target, contents, info?.mode);
+          await replaceFile(root, target, contents, info?.mode, signal);
         });
         capture.append(update ? 'File updated.\n' : 'File written.\n');
       } else if (id === 'workspace.dir.list') {

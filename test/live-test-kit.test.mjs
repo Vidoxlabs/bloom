@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { modelRow, toolRow } from '../public/coding-view.js';
+import { sandboxGit } from '../scripts/make-sandbox.mjs';
 import { createWebWorkspace } from '../src/web.mjs';
 import { copyDemoRepo } from './fixtures/coding-session.mjs';
 import { demoReplies, demoTask } from './fixtures/demo-provider.mjs';
@@ -35,6 +36,17 @@ test('make-sandbox-creates-baseline-commit', t => {
   const empty = join(scratch(t, 'bloom-sandbox-empty-'), 'empty');
   mkdirSync(empty);
   assert.equal(spawnSync(process.execPath, [makeSandbox, empty], { encoding: 'utf8' }).status, 0);
+});
+
+test('sandbox-diff-includes-the-new-note', t => {
+  const target = join(scratch(t, 'bloom-sandbox-'), 'fresh');
+  const created = spawnSync(process.execPath, [makeSandbox, target], { encoding: 'utf8' });
+  assert.equal(created.status, 0);
+  writeFileSync(join(target, 'NOTES.md'), 'Fixture note.\n');
+  assert.equal(sandboxGit(target, 'add', '--intent-to-add', '--', 'NOTES.md').status, 0);
+  const diff = sandboxGit(target, 'diff');
+  assert.equal(diff.status, 0, 'the built-in Git diff must run');
+  assert.match(diff.stdout, /\+Fixture note\./);
 });
 
 test('make-sandbox-refuses-non-empty-or-inside-clone', t => {
