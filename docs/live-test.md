@@ -6,7 +6,7 @@ The endpoint lives only in the private config file described below. Never put it
 
 ## Offline rehearsal
 
-These steps call no model and need no config file.
+These steps call no model and need no config file. Step 1 on a fresh clone needs GitHub access for the exact Seed and Drosera archives. npm can install these pins without a Git executable. The release ZIP already includes both packages and needs no fetch, so start with `npm test` after extracting it.
 
 Run the test suite:
 
@@ -53,7 +53,7 @@ Check the file without sending anything to the server:
 cd bloom && node bin/bloom.mjs doctor
 ```
 
-The Endpoint rule row should read `pass` and name the provider and its locality.
+The Seed pin and Drosera pin rows should show `installed`. `mismatch` means npm's installed metadata does not confirm the exact commit, and `missing` means the package is absent. The Endpoint rule row should read `pass` and name the provider and its locality.
 
 ## Probe
 
@@ -63,7 +63,7 @@ Ask the server what it supports and save its model profile:
 cd bloom && node bin/bloom.mjs doctor --probe
 ```
 
-The probe sends two requests: the models list, and one fixed one-token streaming request that carries nothing of yours. Each row reads `pass`, `fail` or `unknown`. Reachability, Model IDs and Model should pass. Context length, Tool calling and Constrained output stay `unknown` unless the server publishes them, and that is fine. The command exits 1 if any row fails. The saved profile sets the coding loop's prompt budget and whether it streams. The offline version of the probe runs in `npm test` against a fake server.
+The probe sends two requests: the models list, and one fixed one-token streaming request that carries nothing of yours. Each row reads `pass`, `fail` or `unknown`. Reachability, Model IDs and Model should pass. Context length, Tool calling and Constrained output stay `unknown` unless the server publishes them, and that is fine. The command exits 1 if any row fails. The saved profile sets the coding loop's prompt budget and whether it streams. The offline version runs in `npm test` against a fake server, including forced refusal of redirects.
 
 ## Live run
 
@@ -83,10 +83,20 @@ At the prompt, type the same task the rehearsal uses:
 Create NOTES.md with one line describing this project. Run the tests, fix the failing test, run the tests again, and finish with a short summary.
 ```
 
-Read each approval before you answer it. Approve writes and test commands in the sandbox, and reject anything else. When the loop finishes, look at what changed:
+Read each approval before you answer it. Approve writes and test commands in the sandbox, and reject anything else. When the loop finishes, inspect the sandbox. Mark the new note as intent to add so the diff includes it.
 
 ```bash
-cd <sandbox folder> && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager status && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager diff --no-ext-diff
+cd <sandbox folder> && env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager status
+env -u GEMINI_API_KEY git -c core.fsmonitor=false add --intent-to-add -- NOTES.md
+env -u GEMINI_API_KEY git -c core.fsmonitor=false --no-pager diff --no-ext-diff
+```
+
+From the folder that holds your checkouts, list the sessions and export the one you just ran. Advance the replay one event per Enter.
+
+```bash
+cd bloom && node bin/bloom.mjs sessions list
+cd bloom && node bin/bloom.mjs sessions export <session id> --jsonl --out <file>
+cd bloom && node bin/bloom.mjs replay <file> --step
 ```
 
 The run passes when all of these hold:
@@ -157,6 +167,14 @@ While cloud is on, Bloom asks before the first message leaves the machine and be
 Team sessions never use a cloud provider.
 The sandbox marker guards against mistakes; it is not a security boundary.
 
+## Working with an autonomous agent
+
+`--autonomous` is an explicit opt-in for terminal `chat` or `run --headless` with a local provider and a fresh directory created by `scripts/make-sandbox.mjs`. Cloud providers and team sessions are refused. The first live verification above uses manual approvals.
+
+An autonomous turn writes files and runs permitted commands without prompting. The command gate remains active, a refusal stops the turn, and automatic approvals appear as `auto` in the trace. Each turn is limited to 20 model calls, 20 tool calls, and 120 seconds. On `run`, `--max-calls` can lower the model-call limit.
+
+The marker does not restrict what a subprocess can access. Allowed programs run with your account's permissions and can reach the network, including through project scripts. Use a throwaway project you trust and inspect the trace and diff after the turn.
+
 ## Opt-in live tests
 
 Offline `npm test` never loads these. Against your configured provider:
@@ -169,6 +187,6 @@ At most 20 model calls per run of the whole suite. The suite reads the provider 
 
 ## Residual risk
 
-Approval of each call is the boundary. `npm test` runs whatever the sandbox's `package.json` scripts say, and the model may have written those scripts in a write you approved. Commands can reach the network: npm is set offline (flags that change registry, cache or online mode are refused) and git is limited to local subcommands with fsmonitor, hooks and `diff.external` forced off, but Bloom does not block network access from the process. The isolated `HOME` only changes an environment variable, so a command can still find your real home folder through the operating system. A detached grandchild process can outlive the call. Writes under `.git/` are refused. Use a throwaway sandbox, read every approval, and keep the sandbox away from folders you care about. [architecture.md](architecture.md) has the full command gate.
+Approval of each call is the boundary. `npm test` runs whatever the sandbox's `package.json` scripts say, and the model may have written those scripts in a write you approved. Commands can reach the network: npm is set offline (flags that change registry, cache or online mode are refused) and git is limited to local subcommands with fsmonitor, hooks and `diff.external` forced off, but Bloom does not block network access from the process. The isolated `HOME` only changes an environment variable, so a command can still find your real home folder through the operating system. A detached grandchild process can outlive the call. Writes under `.git/` are refused. Use a throwaway sandbox, read every approval, and keep the sandbox away from folders you care about. The [command gate](command-gate.md) describes program selection, approvals and residual risk.
 
 In cloud mode these leave the machine and go to the provider named in your config (for AI Studio, Google): each task you approve, Bloom's fixed tool instructions, short summaries of earlier tasks and answers in the same session, the model's own replies within the turn, and every tool result you approve, including file contents and command output. Bloom asks before each task is sent and before each tool call; the follow-up requests inside a turn carry only results you already approved and are sent without a further prompt. Your key travels only in the request's Authorization header. What the provider keeps, and for how long, is set by its terms, not by Bloom: Google's Gemini API terms say that on unpaid use, including AI Studio and free quota, Google uses submitted content and responses to improve its products. Use a throwaway sandbox and send nothing you would not publish.

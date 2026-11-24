@@ -134,14 +134,19 @@
         "test/cli-coding.test.mjs",
         "test/live-test-kit.test.mjs",
         "test/cloud-gemini.test.mjs",
-        "test/live/live-suite.live.mjs"
+        "test/live/live-suite.live.mjs",
+        "test/git-gate.test.mjs",
+        "test/probe-provider.test.mjs",
+        "test/autonomous.test.mjs",
+        "test/command-flags.test.mjs"
       ],
       "prs": [
         "drosera#4",
         "bloom#4",
         "bloom#5",
         "bloom#8",
-        "bloom#9"
+        "bloom#9",
+        "bloom#10"
       ],
       "commits": [],
       "adr": [
@@ -517,11 +522,14 @@
       "tests": [
         "test/doctor-probe.test.mjs",
         "test/cli-coding.test.mjs",
-        "test/cloud-gemini.test.mjs"
+        "test/cloud-gemini.test.mjs",
+        "test/probe-provider.test.mjs",
+        "test/dependency-pins.test.mjs"
       ],
       "prs": [
         "bloom#7",
-        "bloom#9"
+        "bloom#9",
+        "bloom#10"
       ],
       "commits": [],
       "adr": [],

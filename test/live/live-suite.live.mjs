@@ -95,6 +95,11 @@ test('live-loop-fixes-sandbox', { skip }, async () => {
     assert.ok(types.includes('run.answer.create') || events.some(e => e.type === 'tool.updated' && e.data.toolId === 'run.answer.create'));
     assert.equal(types.at(-1), 'turn.finished');
     assert.ok(events.some(event => event.type === 'assistant.delta' && event.data.final));
+    const status = sandboxGit(sandbox, 'status', '--porcelain', '--untracked-files=all');
+    assert.equal(status.status, 0);
+    assert.deepEqual(status.stdout.trimEnd().split(/\r?\n/).map(line => line.slice(3)).sort(),
+      ['NOTES.md', 'src/range.mjs']);
+    assert.equal(sandboxGit(sandbox, 'add', '--intent-to-add', '--', 'NOTES.md').status, 0);
     const diff = sandboxGit(sandbox, 'diff').stdout;
     assert.match(diff, /NOTES\.md/);
     assert.match(diff, /value <= end/);
