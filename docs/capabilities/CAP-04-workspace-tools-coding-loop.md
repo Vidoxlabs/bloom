@@ -64,6 +64,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `coding-loop-finishes-via-run-answer-create`: coding loop dispatches provider generations behind `src/provider.mjs`, runs admitted tools, and stops cleanly on `run.answer.create`.
 - `unadmitted-tool-rejected-before-execution`: any tool outside the objective's `allowedTools` list is refused before execution.
 - `coding-loop-fixes-fixture-offline`: the loop fixes the synthetic project's failing test through approved calls with zero network calls.
+- `demo-session-fixture-is-lf`, `demo-session-export-is-byte-stable`: the recorded session stays LF and matches a fresh stable export on every platform.
 - `reject-is-never-executed`, `allow-session-binds-args-digest`, `headless-never-writes`, `trace-row-per-call-without-file-contents`, `endpoint-marker-never-in-events-or-export`.
 - `shell-refuses-unlisted-command`, `shell-refuses-absolute-and-parent-args`, `shell-refuses-symlinked-outside-arg`, `shell-refuses-eval-flags`, `shell-home-is-isolated`, `shell-home-cleanup-failure-flagged`, `command-access-has-one-production-caller`.
 - `stream-usage-null-when-unreported`, `abort-returns-no-completed-record`.

@@ -15,6 +15,10 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 - `bloom doctor --probe` model profile capture, with the coding loop's budget and streaming taken from the saved profile (CAP-16, bloom#7).
 - Live-test kit: a sandbox maker, the web workspace's coding view with model rows, tool rows and approval detail, and the `docs/live-test.md` runbook (CAP-04, bloom#8).
 
+### Fixed
+
+- Close the coding-loop test store before deleting its temp tree, and keep fixtures as LF, so Windows CI no longer fails on EBUSY unlinks or CRLF session exports (CAP-04, bloom#5).
+
 ### Removed
 
 - The `npm start -- --api-base` option. The web workspace reads its endpoint only from the private `config.json` (CAP-04, bloom#8).
