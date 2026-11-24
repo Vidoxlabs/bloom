@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, createReadStream, realpathSync } from 'node:fs';
-import { access, lstat, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
+import { access, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -22,11 +22,23 @@ export const ALLOWED_COMMANDS = Object.freeze(['node', 'npm', 'git']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'cmd', 'powershell', 'pwsh']);
 const GIT_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'add', 'commit']);
 const REFUSED_FLAGS = {
-  node: new Set(['-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type', '--loader', '--experimental-loader']),
-  npm: new Set(['--prefix', '-C', '-g', '--global', '--location', '--script-shell', '--node-options']),
+  node: new Set(['-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type', '--loader', '--experimental-loader', '--run']),
+  npm: new Set([
+    '--prefix', '-C', '-g', '--global', '--location', '--script-shell', '--node-options',
+    '--offline', '--no-offline', '--prefer-online', '--registry', '--userconfig', '--globalconfig',
+    '--cache', '--proxy', '--https-proxy',
+  ]),
   git: new Set(['-C', '--git-dir', '--work-tree', '-c', '--exec-path']),
 };
 const REFUSED_NPM_COMMANDS = new Set(['exec', 'x', 'explore', 'edit']);
+const REFUSED_FLAG_REASON = {
+  node: 'That node option evaluates code or loads modules.',
+  npm: 'That npm option changes the registry, cache or online mode.',
+  git: 'That git option redirects the repository or sets config.',
+};
+// npm's non-network redirect flags keep a separate reason from the network-flag set above.
+const NPM_REDIRECT_FLAGS = new Set(['--prefix', '-C', '-g', '--global', '--location', '--script-shell', '--node-options']);
+const NPM_REDIRECT_REASON = 'That npm option redirects the install or evaluates code.';
 
 function invalidArgument(message) {
   return new BloomError('WORKSPACE_ARGUMENT_INVALID', message, 400);
@@ -223,7 +235,12 @@ function escapesWorkspace(value) {
 function flagParts(argument) {
   if (!argument.startsWith('-')) return { flag: null, value: argument };
   const split = argument.indexOf('=');
-  return split === -1 ? { flag: argument, value: null } : { flag: argument.slice(0, split), value: argument.slice(split + 1) };
+  if (split !== -1) return { flag: argument.slice(0, split), value: argument.slice(split + 1) };
+  // Attached short-option values such as -O<path>, -C<path> or -r<path>.
+  if (!argument.startsWith('--') && /^-[A-Za-z].+/.test(argument) && argument.length > 2) {
+    return { flag: argument.slice(0, 2), value: argument.slice(2) };
+  }
+  return { flag: argument, value: null };
 }
 
 function refusedFlag(command, flag) {
@@ -233,16 +250,32 @@ function refusedFlag(command, flag) {
   return command === 'node' && /^-[a-z]{2,}$/i.test(flag) && /[epr]/.test(flag.slice(1));
 }
 
+function refusedFlagReason(command, flag) {
+  if (command === 'npm' && NPM_REDIRECT_FLAGS.has(flag)) return NPM_REDIRECT_REASON;
+  return REFUSED_FLAG_REASON[command];
+}
+
 async function containedArgument(root, value) {
   if (escapesWorkspace(value)) throw refuseCommand('Command arguments must stay inside the workspace.');
   if (!value) return;
-  let resolved;
-  try {
-    resolved = await realpath(resolve(root, value));
-  } catch {
+  // Resolve the nearest existing ancestor, so a new file under a linked folder is checked too.
+  for (let probe = resolve(root, value); ; probe = dirname(probe)) {
+    let resolved;
+    try { resolved = await realpath(probe); }
+    catch { if (dirname(probe) === probe) return; continue; }
+    if (isOutside(root, resolved)) throw refuseCommand('Command arguments must stay inside the workspace.');
     return;
   }
-  if (isOutside(root, resolved)) throw refuseCommand('Command arguments must stay inside the workspace.');
+}
+
+function underDotGit(root, target) {
+  const relativePath = relative(root, target);
+  if (!relativePath || relativePath === '') return false;
+  return relativePath.split(/[\\/]/).some(part => part.toLowerCase() === '.git');
+}
+
+function refuseDotGit() {
+  return new BloomError('WORKSPACE_DOT_GIT_REFUSED', 'Files under .git cannot be written.', 403);
 }
 
 async function checkCommandRequest(root, args) {
@@ -259,7 +292,7 @@ async function checkCommandRequest(root, args) {
   if (!ALLOWED_COMMANDS.includes(command)) throw refuseCommand('Only node, npm and git are allowed commands.');
   for (const argument of argv) {
     const { flag, value } = flagParts(argument);
-    if (refusedFlag(command, flag)) throw refuseCommand('That option evaluates code or redirects the command.');
+    if (refusedFlag(command, flag)) throw refuseCommand(refusedFlagReason(command, flag));
     if (value !== null) await containedArgument(root, value);
   }
   if (command === 'npm' && REFUSED_NPM_COMMANDS.has(argv.find(item => !item.startsWith('-')))) {
@@ -318,7 +351,7 @@ async function commandHome(workspace) {
   throw commandFailed();
 }
 
-function commandEnvironment(environment, home) {
+function commandEnvironment(environment, home, { hooksPath } = {}) {
   const env = { HOME: home };
   if (process.platform === 'win32') env.USERPROFILE = home;
   for (const name of ['PATH', 'LANG', 'TERM']) {
@@ -329,6 +362,19 @@ function commandEnvironment(environment, home) {
     npm_config_offline: 'true', npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false',
     GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', PAGER: 'cat',
   });
+  if (hooksPath) {
+    Object.assign(env, {
+      GIT_CONFIG_COUNT: '4',
+      GIT_CONFIG_KEY_0: 'core.fsmonitor',
+      GIT_CONFIG_VALUE_0: 'false',
+      GIT_CONFIG_KEY_1: 'core.hooksPath',
+      GIT_CONFIG_VALUE_1: hooksPath,
+      GIT_CONFIG_KEY_2: 'diff.external',
+      GIT_CONFIG_VALUE_2: '',
+      GIT_CONFIG_KEY_3: 'core.pager',
+      GIT_CONFIG_VALUE_3: 'cat',
+    });
+  }
   return env;
 }
 
@@ -425,9 +471,16 @@ export function createWorkspaceTools(workspace, {
         const request = await checkCommandRequest(root, args);
         const executable = await resolveCommand(root, searchPath, request.command);
         const home = await commandHome(root);
+        let hooksPath;
+        if (request.command === 'git') {
+          hooksPath = join(home, 'bloom-git-hooks');
+          await mkdir(hooksPath);
+        }
         let result;
         try {
-          result = await runCommand(root, executable, request.args, commandEnvironment(environment, home), timeoutMs, capture, signal);
+          result = await runCommand(
+            root, executable, request.args, commandEnvironment(environment, home, { hooksPath }), timeoutMs, capture, signal,
+          );
         } finally {
           try {
             await rm(home, { recursive: true, force: true, maxRetries: 3 });
@@ -446,8 +499,10 @@ export function createWorkspaceTools(workspace, {
       const requested = args.path === undefined && (id === 'workspace.dir.list' || id === 'workspace.text.search') ? '.' : args.path;
       const target = await canonicalTarget(root, requestedPath(root, requested), id === 'workspace.file.write');
       if (id === 'workspace.file.write' || id === 'workspace.file.update') {
+        if (underDotGit(root, target)) throw refuseDotGit();
         const update = id === 'workspace.file.update';
         await serializeWrite(target, async () => {
+          if (underDotGit(root, target)) throw refuseDotGit();
           if (signal?.aborted) throw cancelled();
           if (await canonicalTarget(root, target, !update) !== target) throw outsideWorkspace();
           const info = await fileInfo(target, !update);

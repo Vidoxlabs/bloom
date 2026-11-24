@@ -36,7 +36,7 @@ The head receives the brief, roster and ordinary desktop file titles. Worker cal
 
 A team provider implements `generate({system, prompt, model, signal, ...})` and returns `{text, complete, model, usage, costUSD}`. `text` is always a string; a reply with no text body is returned as an empty, incomplete record. `usage` holds token counts only, in five fields: `input`, `output`, `total`, `cacheRead` and `cacheWrite`. A reported monetary cost is `costUSD`, beside usage rather than inside it. Missing metrics use null. Since 0.7.0 Bloom imports seed and runs every team provider behind its provider seam (`src/provider.mjs`): seed's `validateProvider` checks the adapter when Bloom starts, and seed's `normalizeGeneration` checks every reply before the team loop reads it. A reply outside the record stops the turn with `PROVIDER_CONTRACT`. Seed's record has no money field, so Bloom carries a reported `costUSD` beside it. `test/generation-record.test.mjs` holds both halves. A custom provider that still puts `costUSD` inside usage is now refused. Bloom ships one network adapter, for chat completions, with no default service: the private `config.json` in the data directory names the endpoint and the environment variable that holds its key, for the terminal and the web workspace alike. Chat completions commonly includes cached reads in its input count. Bloom keeps the provider’s reported total and never converts absent usage into a monetary saving. Without an endpoint, team turns stop with `PROVIDER_UNCONFIGURED`.
 
-Stopping or losing a server never implicitly repeats a model call. In-progress team outputs appear only after the model returns a complete structured response. A coding session runs on a pluggable runtime: `run(input, hooks)` streams text, plan and tool events, asks for approvals through the harness and returns a stop reason. Bloom offers each option the runtime sends, such as **Allow once**, **Always allow** and **Reject**. No coding runtime ships with this release; the scripted demo runtime is the only one, and without a runtime the page offers teams only.
+Stopping or losing a server never implicitly repeats a model call. In-progress team outputs appear only after the model returns a complete structured response. A coding session runs on a pluggable runtime: `run(input, hooks)` streams text, plan and tool events, asks for approvals through the harness and returns a stop reason. Bloom offers each option the runtime sends, such as **Allow once**, **Always allow** and **Reject**. The coding loop is the runtime for `--workspace` sessions; the scripted runtime is demo-only.
 
 ## Workspace tools
 
@@ -57,10 +57,10 @@ stops output capture and terminates the launched process. On POSIX it targets
 the process group. Commands run under the local OS account and the coding
 adapter owns the approval and dispatch flow.
 Commands are off by default. The executor runs `workspace.shell.execute` only
-when it is created with the module-private `workspaceCommandAccess` symbol, and
-no shipped entry point can turn that on except the coding loop in
-`src/coding-loop.mjs`, which is the one production caller a guard test allows.
-There is no test-only command mode: tests use the same allowlisted gate.
+when it is created with the `workspaceCommandAccess` symbol, which
+`src/workspace-tools.mjs` exports and only `src/coding-loop.mjs` passes (a
+guard test checks this). There is no test-only command mode: tests use the
+same allowlisted gate.
 
 The executor returns `output`, `truncatedBytes`, and `outputSha256`. It keeps a
 UTF-8 prefix ending at a complete code point and hashes the full decoded text
@@ -118,37 +118,47 @@ Before a command runs outside tests, all of these hold:
    it needs a shell.
 2. Arguments that are absolute, start with `~`, contain a `..` segment, have a
    drive or UNC root, or start with `file:` are refused, and the same check
-   applies to the value in `--flag=value`. An argument that names an existing
-   path is resolved through links, and a target outside the workspace is refused.
+   applies to the value in `--flag=value` and to the remainder of an attached
+   short option such as `-O<path>`. An argument is resolved through the nearest
+   existing ancestor and through links, so a new file under a linked folder
+   outside the workspace is refused.
 3. Evaluation and redirection are refused: for `node`, `-e`, `--eval`, `-p`,
    `--print`, `-r`, `--require`, `--import`, `--input-type`, `--loader`,
-   `--experimental-loader` and any short option cluster holding `e`, `p` or `r`;
-   for `npm`, `exec`, `x`, `explore`, `edit`, `--prefix`, `-C`, `-g`, `--global`,
-   `--location`, `--script-shell` and `--node-options`; for `git`, `-C`,
+   `--experimental-loader`, `--run` and any short option cluster holding `e`,
+   `p` or `r`; for `npm`, `exec`, `x`, `explore`, `edit`, `--prefix`, `-C`,
+   `-g`, `--global`, `--location`, `--script-shell`, `--node-options`,
+   `--offline`, `--no-offline`, `--prefer-online`, `--registry`, `--userconfig`,
+   `--globalconfig`, `--cache`, `--proxy` and `--https-proxy`; for `git`, `-C`,
    `--git-dir`, `--work-tree`, `-c` and `--exec-path`, with the subcommand limited
    to `status`, `diff`, `log`, `add` and `commit`.
 4. The command environment is `PATH`, `LANG` and `TERM` from Bloom's own
    environment; a fresh temporary `HOME`, and `USERPROFILE` on Windows, outside
    the workspace and the user's home; `npm_config_offline=true` with npm's
    update notifier, fund and audit messages off; and `GIT_CONFIG_NOSYSTEM=1`,
-   `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` and `PAGER=cat`. If removing the
-   temporary home fails, the command result is kept and its trace row says
-   "home cleanup failed".
+   `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` and `PAGER=cat`. Every git command
+   also forces `core.fsmonitor=false`, an empty `core.hooksPath` under the
+   temporary home, an empty `diff.external`, and `core.pager=cat` through
+   `GIT_CONFIG_COUNT` overrides. If removing the temporary home fails, the
+   command result is kept and its trace row says "home cleanup failed".
 5. Every command asks for approval and shows the command and every argument.
-   There is no session-wide allow for commands.
+   There is no session-wide allow for commands. A call runs only on
+   `allow-once` or `allow-session`; any other choice is a rejection.
+6. File tools refuse any write or update under `.git/` at any depth, after path
+   resolution and case-insensitively.
 
 ### Residual risk
 
 Approval of each call is the boundary. `npm test` runs whatever the
 `package.json` scripts say, and the model may have written those scripts in an
-approved write. Commands can reach the network: npm is set offline and git is
-limited to local subcommands, but Bloom does not block network access from the
-process. The isolated `HOME` only changes the environment variable, so a
-command can still find your real home folder through the operating system's
-account lookup, and ssh-based git uses that account entry too. A detached
-grandchild process can outlive the call, because Bloom stops only the process
-group it launched. Git also reads the repository's own configuration, which can
-name programs; a write under `.git/` asks first like any other write.
+approved write. Commands can reach the network: npm is set offline (flags that
+change registry, cache or online mode are refused) and git is limited to local
+subcommands with fsmonitor, hooks and `diff.external` forced off, but Bloom does
+not block network access from the process. The isolated `HOME` only changes the
+environment variable, so a command can still find your real home folder through
+the operating system's account lookup, and ssh-based git uses that account entry
+too. A detached grandchild process can outlive the call, because Bloom stops
+only the process group it launched. Writes under `.git/` are refused; other
+repository metadata outside `.git/` can still be written if approved.
 
 ## Model profiles
 
@@ -198,8 +208,9 @@ The portable suite exercises the budgets, group handoffs, review hold, restart, 
 
 ## Changes
 
-- 2026-11-24: Read the web workspace's endpoint only from the private config and show coding rows and approval detail in the browser (CAP-04, bloom#8).
+- 2026-11-24: Harden the command gate and file tools for the coding loop (CAP-04, bloom#5).
 - 2026-11-24: Add `bloom doctor --probe` and drive the coding loop's budget and streaming from the saved model profile (CAP-16, bloom#7).
+- 2026-11-24: Read the web workspace's endpoint only from the private config and show coding rows and approval detail in the browser (CAP-04, bloom#8).
 - 2026-11-24: Add the coding loop with strict actions, one shared repair turn, per-call approvals, streamed text, a trace row per call, and the allowlisted command gate (CAP-04, bloom#5).
 - 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
 - 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).
