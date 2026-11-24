@@ -449,12 +449,12 @@
       "contracts": [
         "docs/architecture.md"
       ],
-      "tests": [],
-      "prs": [],
+      "tests": ["test/smoke-eval.test.mjs"],
+      "prs": ["bloom#11"],
       "commits": [],
       "adr": [],
       "decision": null,
-      "updated": "2026-11-23"
+      "updated": "2026-11-24"
     },
     {
       "id": "CAP-15",
