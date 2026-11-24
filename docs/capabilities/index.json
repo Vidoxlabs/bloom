@@ -204,8 +204,8 @@
       "contracts": [
         "docs/architecture.md"
       ],
-      "tests": [],
-      "prs": [],
+      "tests": ["test/approval-decisions.test.mjs"],
+      "prs": ["bloom#13"],
       "commits": [],
       "adr": [],
       "decision": null,

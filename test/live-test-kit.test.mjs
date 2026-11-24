@@ -116,7 +116,7 @@ test('web-workspace-runs-coding-loop-from-private-config', async t => {
   const events = [];
   const finished = new Promise(resolve => web.harness.subscribe(session.id, event => {
     events.push(event);
-    if (event.type === 'permission.requested') web.harness.decide(session.id, event.data.id, { optionId: 'allow-once' });
+    if (event.type === 'permission.requested') web.harness.decide(session.id, event.data.id, { optionId: 'allow-once', argsDigest: event.data.argsDigest });
     if (event.type === 'turn.finished') resolve(event.data);
   }));
   web.harness.start(session.id, { text: demoTask });
@@ -168,6 +168,7 @@ test('web-approval-renders-full-detail-as-text', async () => {
         tagName,
         children: [],
         append(...items) { this.children.push(...items); },
+        setAttribute() {},
         set innerHTML(_value) { assert.fail('approval input must be rendered as text'); },
       };
     },

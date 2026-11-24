@@ -1,4 +1,4 @@
-import { approvalCard, modelRow, node, toolRow } from './coding-view.js';
+import { approvalCard, approvalPayload, modelRow, node, toolRow } from './coding-view.js';
 import { teamView } from './team.js';
 const $ = id => document.getElementById(id);
 const drafts = new Map();
@@ -9,6 +9,7 @@ const labels = {
   interrupted: 'Interrupted', pending: 'Pending', in_progress: 'Running', completed: 'Completed',
   unknown: 'Outcome unavailable', revision: 'Changes requested',
   denied: 'Declined', 'invalid-output': 'Invalid output',
+  responded: 'Owner input',
 };
 const state = {
   sessions: [], session: null, stream: null, currentTurn: null, turnState: 'idle',
@@ -205,25 +206,54 @@ function renderModelCall(data) {
   $('activity-empty').hidden = true;
 }
 
-function renderApproval({ id, title, detail, options }) {
+function renderApproval({ id, title, detail, options, argsDigest }) {
   const card = approvalCard({ title, detail });
   const actions = node('div', null, 'form-actions');
+  actions.setAttribute('role', 'group');
+  actions.setAttribute('aria-label', 'Approval actions');
   const sessionId = state.session.id;
+  const form = node('form', null, 'approval-editor');
+  form.hidden = true;
+  const field = node('textarea');
+  field.id = 'approval-input-' + id;
+  const label = node('label');
+  label.htmlFor = field.id;
+  const submit = node('button', 'Submit', 'primary');
+  submit.type = 'submit';
+  form.append(label, field, submit);
+  let editing;
+  const send = async (option, text) => {
+    for (const item of actions.children) item.disabled = true;
+    submit.disabled = true;
+    try {
+      await request(sessionEndpoint(sessionId, 'permissions/' + id), approvalPayload(option, argsDigest, text));
+    } catch (failure) {
+      if (state.session?.id === sessionId) error(failure instanceof SyntaxError ? 'Enter valid JSON replacement arguments.' : failure.message);
+      for (const item of actions.children) item.disabled = false;
+      submit.disabled = false;
+    }
+  };
+  form.onsubmit = event => {
+    event.preventDefault();
+    if (editing) void send(editing, field.value);
+  };
   for (const option of options) {
     const button = node('button', option.label, option.kind === 'allow_once' ? 'primary' : 'quiet');
     button.type = 'button';
-    button.onclick = async () => {
-      for (const item of actions.children) item.disabled = true;
-      try {
-        await request(sessionEndpoint(sessionId, 'permissions/' + id), { optionId: option.id });
-      } catch (failure) {
-        if (state.session?.id === sessionId) error(failure.message);
-        for (const item of actions.children) item.disabled = false;
+    button.onclick = () => {
+      if (option.kind !== 'edit' && option.kind !== 'respond') {
+        void send(option);
+        return;
       }
+      editing = option;
+      label.textContent = option.kind === 'edit' ? 'Replacement arguments as JSON' : 'Owner text';
+      field.value = '';
+      form.hidden = false;
+      field.focus();
     };
     actions.append(button);
   }
-  card.append(actions);
+  card.append(actions, form);
   state.approvals.set(id, { card });
   $('approvals').prepend(card);
   $('activity-empty').hidden = true;
@@ -232,9 +262,12 @@ function renderApproval({ id, title, detail, options }) {
 function resolveApproval(id, kind) {
   const item = state.approvals.get(id);
   if (!item) return;
-  const label = { allow_once: 'Allowed once', allow_always: 'Allowed always', reject_once: 'Declined', cancelled: 'Request closed' }[kind];
+  const label = { allow_once: 'Allowed once', allow_always: 'Allowed always', allow_session: 'Allowed for session',
+    reject_once: 'Declined', cancelled: 'Request closed', edit: 'Edited arguments approved', respond: 'Owner input sent' }[kind];
   item.card.querySelector('strong').textContent = label;
   item.card.querySelector('.form-actions')?.remove();
+  item.card.querySelector('.approval-editor')?.remove();
+  item.card.setAttribute('aria-label', 'Resolved receipt');
   state.approvals.delete(id);
 }
 

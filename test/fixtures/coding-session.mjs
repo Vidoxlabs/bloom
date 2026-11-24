@@ -40,15 +40,20 @@ export function openCodingSession({
   async function run(text, choose = () => 'allow_once', onEvent = () => {}) {
     const events = [];
     let finish;
+    let decisionError;
     const finished = new Promise(resolve => { finish = resolve; });
     const unsubscribe = harness.subscribe(session.id, event => {
       events.push(event);
       onEvent(event);
       if (event.type === 'permission.requested') {
-        Promise.resolve(choose(event.data)).then(kind => {
-          const option = event.data.options.find(item => item.kind === kind);
-          if (option) harness.decide(session.id, event.data.id, { optionId: option.id });
+        Promise.resolve().then(() => choose(event.data)).then(choice => {
+          const decision = typeof choice === 'string' ? { kind: choice } : choice;
+          const option = event.data.options.find(item => item.kind === decision?.kind);
+          if (option) harness.decide(session.id, event.data.id, { ...decision, optionId: option.id, argsDigest: event.data.argsDigest });
           else harness.stop(session.id, { turnId: event.turnId });
+        }).catch(error => {
+          decisionError = error;
+          harness.stop(session.id, { turnId: event.turnId });
         });
       }
       if (event.type === 'turn.finished') finish(event.data);
@@ -56,6 +61,7 @@ export function openCodingSession({
     try {
       harness.start(session.id, { text });
       const ending = await finished;
+      if (decisionError) throw decisionError;
       return { events, ending };
     } finally {
       unsubscribe();

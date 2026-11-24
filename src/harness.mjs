@@ -5,6 +5,7 @@ import { digest } from './team-store.mjs';
 import { Teams } from './teams.mjs';
 import { demoProvider } from './models.mjs';
 import { BloomError } from './errors.mjs';
+import { permissionDecision } from './permission-decision.mjs';
 
 export function workspacePath(path) {
   try {
@@ -174,25 +175,26 @@ export class Harness {
     if (state.controller.signal.aborted) return null;
     const id = this.newId();
     return new Promise(resolve => {
-      state.permissions.set(id, { options: request.options, resolve });
-      this.event(sessionId, state.id, 'permission.requested', { id, ...request });
+      const { editSchema, ...visible } = request;
+      state.permissions.set(id, { ...visible, editSchema, resolve });
+      this.event(sessionId, state.id, 'permission.requested', { id, ...visible });
     });
   }
 
-  settlePermission(sessionId, state, requestId, option) {
+  settlePermission(sessionId, state, requestId, option, decision = null) {
     const pending = state.permissions.get(requestId);
-    this.event(sessionId, state.id, 'permission.resolved', { id: requestId, kind: option?.kind ?? 'cancelled' });
+    this.event(sessionId, state.id, 'permission.resolved', { id: requestId, kind: option?.kind ?? 'cancelled', ...decision?.receipt });
     state.permissions.delete(requestId);
-    pending.resolve(option?.id ?? null);
+    pending.resolve(decision?.value ?? option?.id ?? null);
   }
 
-  decide(sessionId, requestId, { optionId }) {
+  decide(sessionId, requestId, input) {
     const state = this.active.get(sessionId);
     const request = state?.permissions.get(requestId);
     if (!request) throw new BloomError('PERMISSION_SETTLED', 'This permission request is no longer pending.', 409);
-    const option = request.options.find(item => item.id === optionId);
+    const option = request.options.find(item => item.id === input?.optionId);
     if (!option) throw new BloomError('PERMISSION_UNKNOWN', 'Choose one of the offered responses.', 400);
-    this.settlePermission(sessionId, state, requestId, option);
+    this.settlePermission(sessionId, state, requestId, option, permissionDecision(request, option, input));
     return { accepted: true };
   }
 

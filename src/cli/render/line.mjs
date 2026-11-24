@@ -8,13 +8,14 @@ export function hasColor(stdout, env = process.env) {
 const unreported = value => value ?? 'unreported';
 const plain = value => String(value).replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, '');
 const clockTime = at => typeof at === 'string' && /T\d\d:\d\d:\d\d/.test(at) ? at.slice(11, 19) : '--:--:--';
-const finalStatuses = new Set(['completed', 'failed', 'denied', 'refused', 'invalid-output']);
+const finalStatuses = new Set(['completed', 'failed', 'denied', 'refused', 'responded', 'invalid-output']);
 
 // One trace row per call: time, tool ID, a short argument summary, the result, and the duration.
 function traceRow(at, data) {
   const parts = [clockTime(at), data.toolId, data.summary, data.status];
   if (data.approval === 'session') parts.push('allowed for session');
   if (data.approval === 'auto') parts.push('auto');
+  if (data.approval === 'edit') parts.push('owner edit');
   if (data.timedOut) parts.push('timed out');
   else if (data.exitCode !== undefined && data.exitCode !== null) parts.push('exit ' + data.exitCode);
   if (Number.isSafeInteger(data.bytes)) parts.push(data.bytes + ' B');
@@ -90,7 +91,19 @@ export function lineRenderer({ stdout, nextLine, headless = false, policy = 'den
       stdout.write('Choose a response (Enter rejects) > ');
       const answer = await nextLine();
       const index = /^\d+$/.test(answer ?? '') ? Number(answer) - 1 : -1;
-      return request.options[index]?.id ?? headlessChoice(request, 'deny');
+      const selected = request.options[index];
+      if (selected?.kind === 'edit') {
+        stdout.write('Replacement arguments as one line of JSON > ');
+        let editedArgs;
+        try { editedArgs = JSON.parse(await nextLine()); }
+        catch { editedArgs = null; }
+        return { optionId: selected.id, editedArgs };
+      }
+      if (selected?.kind === 'respond') {
+        stdout.write('Owner text > ');
+        return { optionId: selected.id, text: await nextLine() };
+      }
+      return selected?.id ?? headlessChoice(request, 'deny');
     },
     close() {},
   };

@@ -1,7 +1,7 @@
 // The coding runtime: a model picks one workspace tool per reply, Bloom checks the call against the
 // admitted tools and the face schemas, asks the owner before any write or command, runs the tool
 // inside the workspace, and finishes when the model calls run.answer.create.
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 import { workspaceToolPack } from '@vidoxlabs/drosera';
@@ -9,6 +9,8 @@ import { validateValue } from '@vidoxlabs/seed';
 import { autonomousLimits, beforeAbort, startAutonomousDeadline } from './autonomous-budget.mjs';
 import { BloomError } from './errors.mjs';
 import { adoptProvider } from './provider.mjs';
+import { argumentDigest, canRespond } from './permission-decision.mjs';
+import { buildPrompt, shortText } from './coding-prompt.mjs';
 import { isBloomSandbox } from './sandbox-marker.mjs';
 import { createWorkspaceTools, workspaceCommandAccess } from './workspace-tools.mjs';
 
@@ -22,13 +24,6 @@ const OBSERVATION_CHARS = 6_000;
 const SHELL_OUTPUT_CHARS = 4_000;
 
 export const CODING_RUNTIME_ID = 'coding';
-
-function argumentDigest(toolId, args) {
-  const canonical = value => Array.isArray(value) ? value.map(canonical)
-    : value && typeof value === 'object'
-      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-  return createHash('sha256').update(JSON.stringify([toolId, canonical(args)])).digest('hex');
-}
 
 function describeSchema(schema) {
   const required = new Set(schema?.required ?? []);
@@ -77,10 +72,6 @@ function schemaErrors(result) {
   return result.errors.map(error => `${error.path || '/'}: ${error.reason}`);
 }
 
-const shortText = (value, limit = 48) => {
-  const text = String(value).replace(/\s+/g, ' ');
-  return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
-};
 const quoteArgument = value => /^[\w./=:@%+,-]+$/.test(value) ? value : JSON.stringify(value);
 
 // The trace summary names paths, queries and commands, never file contents.
@@ -147,26 +138,12 @@ export function codingConfig(profile) {
   };
 }
 
-function buildPrompt(task, earlier, steps, budget) {
-  const opening = [
-    earlier.length ? 'Earlier in this session:\n' + earlier.map(item => `- Task: ${shortText(item.task, 200)}\n  Answer: ${shortText(item.answer, 400)}`).join('\n') + '\n' : '',
-    'Task:\n' + task,
-  ].join('\n');
-  const rendered = steps.map((step, index) => `Step ${index + 1}, your reply:\n${step.reply}\n\nResult:\n${step.observation}`);
-  let kept = rendered.length;
-  const closing = '\n\nReply with your next tool call.';
-  const size = count => opening.length + closing.length + rendered.slice(rendered.length - count).join('\n\n').length + 64;
-  while (kept > 1 && size(kept) > budget) kept -= 1;
-  const omitted = rendered.length - kept;
-  return [opening, omitted ? `[${omitted} earlier steps omitted to fit the context budget]` : '', ...rendered.slice(rendered.length - kept)]
-    .filter(Boolean).join('\n\n') + closing;
-}
-
 export function createCodingRuntime({
   provider,
   headless = false,
   cloud = false,
   autonomous = null,
+  interactiveDecisions = false,
   maxSteps = 40,
   profile = null,
   allowedTools = workspaceToolPack.ids(),
@@ -256,7 +233,8 @@ export function createCodingRuntime({
         if (repair(reply, parsed.errors)) continue;
         return { stopReason: 'malformed' };
       }
-      const { tool: toolId, args } = parsed.action;
+      const { tool: toolId } = parsed.action;
+      let { args } = parsed.action;
       if (!admitted.has(toolId)) {
         if (repair(reply, [`${toolId} is not an admitted tool. Choose one of: ${[...admitted].join(', ')}.`])) continue;
         return { stopReason: 'malformed' };
@@ -307,20 +285,41 @@ export function createCodingRuntime({
             ...(toolId !== SHELL && !cloud ? [{ id: 'allow-session', kind: 'allow_session', label: 'Allow this exact call for the session' }] : []),
             { id: 'reject', kind: 'reject_once', label: 'Reject' },
           ];
+          const bound = interactiveDecisions && !cloud;
+          if (bound) {
+            options.push({ id: 'edit', kind: 'edit', label: 'Edit arguments' });
+            if (canRespond(face.effect)) options.push({ id: 'respond', kind: 'respond', label: 'Respond as owner' });
+          }
           const choice = await hooks.permission({
             title: `${toolId}  ${row.summary}`, kind: face.effect, effect: face.effect, toolId,
             summary: row.summary, detail: approvalDetail(toolId, args), options,
+            ...(bound ? { callId: row.id, argsDigest: digest, editSchema: face.inputSchema } : {}),
             ...(toolId === SHELL ? { command: args.command, args: [...(args.args ?? [])] } : {}),
           });
           if (signal.aborted || choice === null) return { stopReason: 'cancelled' };
-          if (choice !== 'allow-once' && choice !== 'allow-session') {
+          if (bound && choice?.kind === 'respond') {
+            finishRow('responded', { durationMs: elapsed(toolStarted), approval: 'respond' });
+            steps.push({ reply, ownerInput: choice.text });
+            repairs = 0;
+            continue;
+          }
+          if (bound && choice?.kind === 'edit') {
+            if (argumentDigest(toolId, choice.args) !== choice.editedArgsDigest) {
+              finishRow('refused', { durationMs: elapsed(toolStarted), reason: 'PERMISSION_DIGEST_MISMATCH' });
+              return { stopReason: 'refusal' };
+            }
+            args = choice.args;
+            row.summary = summarize(toolId, args);
+            approval = 'edit';
+          } else if (choice !== 'allow-once' && choice !== 'allow-session') {
             finishRow('denied', { durationMs: elapsed(toolStarted), approval: 'denied' });
             steps.push({ reply, observation: DENIED });
             repairs = 0;
             continue;
+          } else {
+            approval = choice === 'allow-session' ? 'session-granted' : 'once';
+            if (choice === 'allow-session') memory.allowances.add(digest);
           }
-          approval = choice === 'allow-session' ? 'session-granted' : 'once';
-          if (choice === 'allow-session') memory.allowances.add(digest);
         }
       }
 
@@ -370,7 +369,8 @@ export function createCodingRuntime({
         memory.earlier.push({ task, answer: result.output });
         return { stopReason: 'end_turn' };
       }
-      steps.push({ reply, observation: observationText(toolId, result) });
+      const observation = observationText(toolId, result);
+      steps.push({ reply, observation: approval === 'edit' ? 'Owner-edited arguments ran.\n' + observation : observation });
     }
     return { stopReason: 'max_turn_requests' };
   }

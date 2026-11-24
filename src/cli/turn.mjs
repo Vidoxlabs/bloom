@@ -28,8 +28,9 @@ export async function runTurn(harness, session, request, renderer, controls, out
       case 'team.usage': figures.push(data.usage); break;
       case 'model.usage': figures.push(data); break;
       case 'permission.requested':
-        Promise.resolve(renderer.prompt(maskWorkspace(data, session.workspace))).then(optionId => {
-          if (optionId) harness.decide(session.id, data.id, { optionId });
+        Promise.resolve(renderer.prompt(maskWorkspace(data, session.workspace))).then(selection => {
+          const decision = typeof selection === 'string' ? { optionId: selection } : selection;
+          if (decision) harness.decide(session.id, data.id, { ...decision, argsDigest: data.argsDigest });
           else if (harness.active.get(session.id)?.permissions.has(data.id)) controls.stop();
         }).catch(error => {
           if (error.code === 'PERMISSION_SETTLED') return;

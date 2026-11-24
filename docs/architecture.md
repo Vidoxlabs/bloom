@@ -70,6 +70,8 @@ order, and a timeout reports the text captured up to the deadline alongside
 
 ## Coding loop
 
+See [approval decisions](approval-decisions.md) for local Edit and Respond.
+
 **Implemented.** `src/coding-loop.mjs` is a coding runtime on the harness seam
 `run(input, hooks)`. `bloom chat --workspace PATH` and `bloom run --headless
 --workspace PATH` use it when no `--team` is named, and the browser workspace

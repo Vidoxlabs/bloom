@@ -10,9 +10,18 @@ export function node(tag, text, className, dom = document) {
 
 export function approvalCard({ title, detail }, dom = document) {
   const card = node('div', null, 'approval', dom);
+  card.setAttribute('role', 'region');
+  card.setAttribute('aria-label', 'Pending approval');
   card.append(node('strong', 'Approval needed', null, dom), node('p', title, null, dom));
   if (detail) card.append(node('pre', detail, 'approval-detail', dom));
   return card;
+}
+
+export function approvalPayload(option, argsDigest, text) {
+  const payload = { optionId: option.id, ...(argsDigest ? { argsDigest } : {}) };
+  if (option.kind === 'edit') payload.editedArgs = JSON.parse(text);
+  if (option.kind === 'respond') payload.text = text;
+  return payload;
 }
 
 export function modelRow({ call, durationMs, usage }) {
