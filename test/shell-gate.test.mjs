@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeF
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createWorkspaceTools, workspaceCommandAccess } from '../src/workspace-tools.mjs';
 
@@ -82,7 +82,7 @@ test('shell-refuses-absolute-and-parent-args', async t => {
   const { root, outside, tools } = await fixture(t);
   const values = [
     join(outside, 'secret.txt'), '/etc/hosts', '~', '~/notes', '~user', '..', '../other', 'a/../b', 'a\\..\\b',
-    'C:\\temp', 'C:temp', 'c:/temp', '\\\\server\\share', '//server/share', 'file:///tmp/x', 'file:notes',
+    'C:\\temp', 'C:temp', 'c:/temp', '\\\\server\\share', '//server/share', pathToFileURL(outside).href, 'file:notes',
     'FILE:notes', 'with\0nul',
   ];
   for (const value of values) {
