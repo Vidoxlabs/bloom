@@ -38,9 +38,9 @@ async function post(url, body, options) {
   }
 }
 
-// Read a chat-completions event stream. Each delta goes to onDelta as it arrives; the reply is
-// complete only when a choice reports finish_reason "stop", and usage stays null unless a chunk
-// carries it. An abort rejects, so no completed record exists for a stopped call.
+// Read a chat-completions event stream. Each delta goes to onDelta as it arrives, and the reply
+// comes back in the non-streamed shape: complete only when a choice reports finish_reason "stop",
+// usage only when a chunk carries it. An abort rejects, so no completed record exists.
 async function stream(url, body, options, onDelta, redact) {
   const response = await send(url, body, options);
   const { signal, label } = options;
@@ -50,10 +50,9 @@ async function stream(url, body, options, onDelta, redact) {
   const reader = response.body.getReader();
   let buffer = '';
   let text = '';
-  let finished = false;
+  let finishReason = null;
   let model = null;
   let usage = null;
-  let cost = null;
   const emit = piece => {
     if (piece) {
       text += piece;
@@ -68,13 +67,10 @@ async function stream(url, body, options, onDelta, redact) {
     try { chunk = JSON.parse(payload); }
     catch { throw new BloomError('PROVIDER_RESPONSE', label + ' returned an unreadable response.'); }
     if (typeof chunk?.model === 'string') model = chunk.model;
-    if (chunk?.usage && typeof chunk.usage === 'object') {
-      usage = chatUsage(chunk.usage);
-      cost = amount(chunk.usage.cost);
-    }
+    if (chunk?.usage && typeof chunk.usage === 'object') usage = chunk.usage;
     const choice = chunk?.choices?.[0];
     if (typeof choice?.delta?.content === 'string') emit(redactor.push(choice.delta.content));
-    if (choice?.finish_reason) finished = choice.finish_reason === 'stop';
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
     return false;
   };
   try {
@@ -96,7 +92,8 @@ async function stream(url, body, options, onDelta, redact) {
   }
   if (signal.aborted) throw signal.reason;
   emit(redactor.flush());
-  return { text, finished, model, usage, cost };
+  // The same shape as a non-streamed reply, so one path builds the record.
+  return { model, choices: [{ message: { content: text }, finish_reason: finishReason }], usage };
 }
 
 export function inspectEndpoint(value, { locality, allowInsecureHttp = false } = {}) {
@@ -131,14 +128,12 @@ export function createChatProvider({
       if (terminal && /-cloud$/i.test(model)) {
         throw new BloomError('EGRESS_REFUSED', 'Cloud models are unavailable in the terminal shell.');
       }
-      const messages = [{ role: 'system', content: system }, { role: 'user', content: prompt }];
-      const options = { signal, fetcher, label, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} };
-      if (typeof onDelta === 'function') {
-        const streamed = await stream(base + '/chat/completions', { model, messages, stream: true }, options, onDelta, redact);
-        return record({ text: streamed.text, finished: streamed.finished, model: redact(streamed.model ?? model),
-          usage: streamed.usage, costUSD: streamed.cost });
-      }
-      const data = await post(base + '/chat/completions', { model, messages, stream: false }, options);
+      // With a delta callback the request streams, and the reply is read into the same shape.
+      const request = typeof onDelta === 'function'
+        ? (url, body, options) => stream(url, { ...body, stream: true }, options, onDelta, redact) : post;
+      const data = await request(base + '/chat/completions', { model, messages: [
+        { role: 'system', content: system }, { role: 'user', content: prompt },
+      ], stream: false }, { signal, fetcher, label, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} });
       const selected = data?.choices?.[0];
       return record({ text: redact(selected?.message?.content), finished: selected?.finish_reason === 'stop',
         model: redact(data?.model ?? model), usage: data?.usage ? chatUsage(data.usage) : null, costUSD: amount(data?.usage?.cost) });
