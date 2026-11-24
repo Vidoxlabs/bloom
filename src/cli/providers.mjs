@@ -16,6 +16,6 @@ export function selectProviders({
     : unconfiguredProvider;
   // A configured endpoint also drives the coding runtime, which a workspace session uses.
   const coding = !demo && configured.baseURL
-    ? [createCodingRuntime({ provider: teamProvider, headless, profile, cloud, autonomous })] : [];
+    ? [createCodingRuntime({ provider: teamProvider, headless, profile, cloud, autonomous, interactiveDecisions: true })] : [];
   return { teamProvider, adapters: demo ? [demoAdapter] : coding, redact, credential };
 }

@@ -49,7 +49,13 @@ function readBounded(path, original, maxBytes) {
   const handle = openSync(path, constants.O_RDONLY | posixFlags);
   try {
     const stat = fstatSync(handle);
-    if (!stat.isFile() || stat.ino !== original.ino || stat.dev !== original.dev) throw new Error('Workspace entry changed.');
+    // Windows reports an inode per handle that need not match the one `lstat` recorded
+    // for the same file, so the swap check there compares what it does report: the size
+    // and modification time the listing saw against the ones the handle carries.
+    const unchanged = process.platform === 'win32'
+      ? stat.size === original.size && stat.mtimeMs === original.mtimeMs
+      : stat.ino === original.ino && stat.dev === original.dev;
+    if (!stat.isFile() || !unchanged) throw new Error('Workspace entry changed.');
     if (stat.size > maxBytes) return null;
     const bytes = Buffer.alloc(stat.size + 1);
     let offset = 0;
@@ -75,7 +81,7 @@ export function walkWorkspace(directory, { includeHidden = false, include = [], 
   const bounded = bounds(limits);
   const result = { files: [], omitted: [], unknown: [] };
   const omit = (path, reason) => result.omitted.push({ path, reason });
-  const unknown = (path, reason) => result.unknown.push({ path, reason });
+  const unknown = (path, reason, detail) => result.unknown.push(detail ? { path, reason, detail } : { path, reason });
   let entriesLeft = bounded.maxEntries;
   let bytesLeft = bounded.maxBytes;
   let root;
@@ -115,8 +121,10 @@ export function walkWorkspace(directory, { includeHidden = false, include = [], 
         bytesLeft -= bytes.length;
         if (binary(bytes)) { omit(path, 'binary'); continue; }
         result.files.push({ path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
-      } catch {
-        unknown(path, entry.isSymbolicLink() ? 'symlink' : 'read-failed');
+      } catch (error) {
+        // The reason alone cannot tell a permission denial from a changed entry, and this
+        // path is where a platform's disagreement with the record surfaces.
+        unknown(path, entry.isSymbolicLink() ? 'symlink' : 'read-failed', error?.code ?? error?.message);
       }
     }
   }
