@@ -494,23 +494,28 @@
     {
       "id": "CAP-16",
       "role": "touches",
-      "status": "proposed",
-      "claim": "planned",
+      "status": "in-progress",
+      "claim": "specified",
       "spec": "seed/docs/capabilities/CAP-16-provider-conformance-model-profiles.md",
       "slices": [
         {
           "id": "CAP-16.3",
           "title": "Doctor probe model profile and profile-driven prompts and budgets in bloom",
           "milestone": "M4",
-          "status": "proposed"
+          "status": "landed"
         }
       ],
       "toolIds": [],
       "contracts": [
         "docs/architecture.md"
       ],
-      "tests": [],
-      "prs": [],
+      "tests": [
+        "test/doctor-probe.test.mjs",
+        "test/cli-coding.test.mjs"
+      ],
+      "prs": [
+        "bloom#6"
+      ],
       "commits": [],
       "adr": [],
       "decision": null,

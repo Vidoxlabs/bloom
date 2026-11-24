@@ -150,6 +150,32 @@ grandchild process can outlive the call, because Bloom stops only the process
 group it launched. Git also reads the repository's own configuration, which can
 name programs; a write under `.git/` asks first like any other write.
 
+## Model profiles
+
+`bloom doctor --probe` asks the configured provider what it supports and saves
+the answer as a seed model profile in `profiles.json` in Bloom's data
+directory, keyed by the provider's config name and the model alias. The file
+holds no address, and the printed checks name the provider only by its config
+name and locality.
+
+The probe sends two requests. The models list, with a 5 second limit, shows
+whether the server answers, which model IDs it lists, and whether the
+configured alias's backend model is among them. A failure is reported as
+`refused`, `timeout`, `tls` or `http-<code>`. One fixed one-token streaming
+request, with a 30 second limit, shows whether the server streams; it carries
+the same short message every time and nothing from the user. Context length,
+tool calling and constrained output are `reported` only when the models list
+entry publishes them, and `unknown` otherwise. No probe request carries a tools
+or schema field, and an unknown check is never a pass. `doctor --probe` exits 1
+on any failed check.
+
+The coding loop reads the saved profile for the provider and alias it runs
+with. A reported or probed context length sets the prompt budget, and a probed
+"no" for streaming makes it ask for whole replies. Anything unknown falls back
+to the default budget and to streaming. The action format stays the fenced json
+block whatever the profile says, so tool calling and constrained output are
+recorded but do not change the requests yet.
+
 ## Local note writes
 
 The HTTP handler checks the local host and rejects a mismatched Origin before looking up the team. Add note, Correct, Keep and Forget require `confirmed: true` in the request body after that lookup. The browser sends it on the corresponding user action. An authenticated seat gate would require independently verified browser identity and a seat binding. Bloom's session IDs identify local conversations, and the OS account is the trust boundary.
@@ -168,10 +194,11 @@ Omit `--check` to update the used properties. A fresh Bloom checkout runs from t
 
 ## Verification
 
-The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam, the coding-session harness against a scripted runtime, the command gate, and the coding loop against a scripted provider and a synthetic project with zero network calls. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
+The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam, the coding-session harness against a scripted runtime, the command gate, the provider probe against a fake server, and the coding loop against a scripted provider and a synthetic project with zero network calls. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
 
 ## Changes
 
+- 2026-11-24: Add `bloom doctor --probe` and drive the coding loop's budget and streaming from the saved model profile (CAP-16, bloom#6).
 - 2026-11-24: Add the coding loop with strict actions, one shared repair turn, per-call approvals, streamed text, a trace row per call, and the allowlisted command gate (CAP-04, bloom#5).
 - 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
 - 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).

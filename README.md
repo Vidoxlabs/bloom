@@ -38,7 +38,7 @@ A configured local model can run the existing team loop. In the terminal data di
 
 The team loop uses the desktop and saved specialists. `--team NAME --workspace PATH` records a team session's workspace. **Implemented:** `bloom chat --workspace PATH` without `--team` runs the coding loop in that folder: the model reads, searches, edits and runs `node`, `npm` or `git` there, and Bloom asks before every write and every command. A headless `bloom run --workspace PATH` never writes. Read the command gate and its residual risk in [docs/architecture.md](docs/architecture.md) before pointing it at a folder you care about. Terminal cloud approval is **planned**.
 
-`bloom doctor` checks the local installation and endpoint rule without displaying the address. Model-server probes are **planned**. `bloom sessions list` lists session IDs. `bloom sessions export ID --jsonl` writes the stored events in order, and `bloom replay FILE --step` displays them one at a time. Use `--data-dir` to select the data directory, including when you read a demo session. `bloom memory --help` lists note commands. Forget requires `--confirm`.
+`bloom doctor` checks the local installation and endpoint rule without displaying the address. `bloom doctor --probe` also asks the configured provider what it supports, saves its model profile, and names the provider only by its config name and locality. `bloom sessions list` lists session IDs. `bloom sessions export ID --jsonl` writes the stored events in order, and `bloom replay FILE --step` displays them one at a time. Use `--data-dir` to select the data directory, including when you read a demo session. `bloom memory --help` lists note commands. Forget requires `--confirm`.
 
 ## Work with a team
 
