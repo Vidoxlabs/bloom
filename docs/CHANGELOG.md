@@ -15,6 +15,7 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 - `bloom doctor --probe` model profile capture, with the coding loop's budget and streaming taken from the saved profile (CAP-16, bloom#7).
 - Live-test kit: a sandbox maker, the web workspace's coding view with model rows, tool rows and approval detail, and the `docs/live-test.md` runbook (CAP-04, bloom#8).
 - Cloud provider opt-in with `--allow-cloud` in a make-sandbox folder, Gemini OpenAI-compatible probe and error mapping, and opt-in `npm run test:live` (CAP-16, bloom#9).
+- Name videsign roles in the terminal trace, and show model and tool budgets with a diff-aware output viewer in the page (CAP-10, bloom#15).
 
 ### Changed
 
