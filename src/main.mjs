@@ -1,23 +1,29 @@
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
-import { dataPath } from './data-dir.mjs';
 import { parseArgs } from 'node:util';
-import { Store } from './store.mjs';
-import { Harness } from './harness.mjs';
+import { dataPath } from './data-dir.mjs';
+import { BloomError } from './errors.mjs';
 import { createHandler } from './http.mjs';
-import { selectProviders } from './cli/providers.mjs';
+import { createWebWorkspace } from './web.mjs';
 
-const { values } = parseArgs({ options: {
-  demo: { type: 'boolean' },
-  'data-dir': { type: 'string' },
-  workspace: { type: 'string' },
-  'team-model': { type: 'string' },
-  'api-base': { type: 'string' },
-  port: { type: 'string', default: '4317' },
-  help: { type: 'boolean', short: 'h' },
-} });
+// The model endpoint is read only from config.json in the data directory.
+let values;
+try {
+  ({ values } = parseArgs({ options: {
+    demo: { type: 'boolean' },
+    'data-dir': { type: 'string' },
+    workspace: { type: 'string' },
+    'team-model': { type: 'string' },
+    port: { type: 'string', default: '4317' },
+    help: { type: 'boolean', short: 'h' },
+  } }));
+} catch {
+  console.error('Unknown option. Use npm start -- --help.');
+  process.exit(2);
+}
 if (values.help) {
-  console.log('Usage: npm start -- [--api-base URL] [--team-model ID] [--workspace PATH] [--data-dir PATH] [--port 4317]\nThe endpoint key is read from BLOOM_API_KEY.\nDemo: npm run demo');
+  console.log('Usage: npm start -- [--workspace PATH] [--team-model ID] [--data-dir PATH] [--port 4317]\n' +
+    'The model provider and its key setting come from config.json in the data directory.\n' +
+    'With a provider configured, a workspace session runs the coding loop in that folder.\nDemo: npm run demo');
   process.exit(0);
 }
 const port = Number(values.port);
@@ -27,19 +33,14 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
 }
 
 const dataDirectory = dataPath(values['data-dir'], values.demo);
-let selection;
+let web;
 try {
-  selection = selectProviders({ demo: values.demo, baseURL: values['api-base'], model: values['team-model'] });
-} catch {
-  console.error('Bloom could not use the configured model provider.');
-  process.exit(1);
+  web = createWebWorkspace({ dataDirectory, workspace: values.workspace, demo: values.demo, teamModel: values['team-model'] });
+} catch (error) {
+  console.error(error instanceof BloomError ? error.message : 'Bloom could not use the configured model provider.');
+  process.exit(error instanceof BloomError && error.status === 400 ? 2 : 1);
 }
-const { redact, ...providers } = selection;
-const store = new Store(dataDirectory, { redact });
-const harness = new Harness({
-  store, dataDirectory, ...providers,
-  defaultWorkspace: values.workspace ? resolve(values.workspace) : '',
-});
+const { store, harness } = web;
 const server = createServer(createHandler(harness));
 server.on('error', error => {
   console.error('Bloom could not open its local listener (' + (error.code ?? 'unknown') + ').');

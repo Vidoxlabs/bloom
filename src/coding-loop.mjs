@@ -182,7 +182,9 @@ export function createCodingRuntime({
   const streaming = config.streaming;
   const sessions = new Map();
 
-  async function run({ workspace, nativeId, model, prompt: task, signal }, hooks) {
+  async function run({ workspace, nativeId, model: requested, prompt: task, signal }, hooks) {
+    // A session opened without a model, as the web form opens one, uses the provider's default.
+    const model = requested ?? adopted.defaultModel;
     const id = nativeId ?? newId();
     hooks.bind({ nativeId: id, model: model ?? null, models: model ? [{ id: model, label: model }] : [], resumed: Boolean(nativeId) });
     const memory = sessions.get(id) ?? { allowances: new Set(), earlier: [] };

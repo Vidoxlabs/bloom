@@ -1,3 +1,4 @@
+import { modelRow, toolRow } from './coding-view.js';
 import { teamView } from './team.js';
 const $ = id => document.getElementById(id);
 const drafts = new Map();
@@ -7,6 +8,7 @@ const labels = {
   stopped: 'Stopped', refused: 'Refused', failed: 'Failed', limit: 'Limit reached',
   interrupted: 'Interrupted', pending: 'Pending', in_progress: 'Running', completed: 'Completed',
   unknown: 'Outcome unavailable', revision: 'Changes requested',
+  denied: 'Declined', 'invalid-output': 'Invalid output',
 };
 const state = {
   sessions: [], session: null, stream: null, currentTurn: null, turnState: 'idle',
@@ -191,16 +193,29 @@ function renderTool(update) {
   const tool = { ...current?.tool, ...update };
   if (!current) $('tools').append(row);
   state.tools.set(tool.id, { tool, row });
-  const detail = node('div', tool.title || tool.name || 'Tool call', 'tool-title');
-  if (tool.name && tool.name !== tool.title) detail.append(node('code', tool.name, 'tool-name'));
-  row.dataset.phase = tool.status ?? 'pending';
-  row.replaceChildren(detail, node('span', labels[row.dataset.phase] ?? labels.pending, 'step-state'));
+  const view = toolRow(tool);
+  const detail = node('div', view.title, 'tool-title');
+  if (view.name) detail.append(node('code', view.name, 'tool-name'));
+  if (view.meta) detail.append(node('span', view.meta, 'hint'));
+  row.dataset.phase = view.phase;
+  row.replaceChildren(detail, node('span', labels[view.phase] ?? labels.pending, 'step-state'));
+  if (view.output) row.append(node('pre', view.output, 'tool-output'));
   $('activity-empty').hidden = true;
 }
 
-function renderApproval({ id, title, options }) {
+// One row per model call, beside the tool rows, in call order.
+function renderModelCall(data) {
+  const row = node('li');
+  row.dataset.phase = data.complete ? 'completed' : 'failed';
+  row.append(node('div', modelRow(data), 'tool-title'), node('span', data.complete ? 'Complete' : 'Incomplete', 'step-state'));
+  $('tools').append(row);
+  $('activity-empty').hidden = true;
+}
+
+function renderApproval({ id, title, detail, options }) {
   const card = node('div', null, 'approval');
   card.append(node('strong', 'Approval needed'), node('p', title));
+  if (detail) card.append(node('pre', detail, 'approval-detail'));
   const actions = node('div', null, 'form-actions');
   const sessionId = state.session.id;
   for (const option of options) {
@@ -269,7 +284,12 @@ function apply({ seq, turnId, type, data }) {
         { key: 'event/' + seq, toTeam: data.toTeam, fromTeam: data.fromTeam });
       void team.refresh().catch(e => error(e.message));
       break;
-    case 'assistant.delta': message(turnId, 'assistant', data.text); break;
+    case 'assistant.delta':
+      // The coding loop's answer arrives whole and marked final, after the streamed replies.
+      if (data.final) message(turnId, 'assistant', data.text, 'Answer', null, null, null, { key: turnId + '/answer' });
+      else message(turnId, 'assistant', data.text);
+      break;
+    case 'model.call': renderModelCall(data); break;
     case 'plan.updated': renderPlan(data.entries); break;
     case 'tool.updated': renderTool(data); break;
     case 'permission.requested': renderApproval(data); break;

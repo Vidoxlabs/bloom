@@ -118,7 +118,7 @@ export function createChatProvider({
   baseURL, apiKey, defaultModel, fetcher = fetch, locality, allowInsecureHttp, terminal = false,
   label = 'the configured model endpoint', redact,
 } = {}) {
-  if (!baseURL) throw new Error('Choose a model endpoint with --api-base.');
+  if (!baseURL) throw new Error('Choose a model endpoint in config.json.');
   const { base } = inspectEndpoint(baseURL, { locality, allowInsecureHttp });
   redact ??= endpointRedactor(baseURL);
   return {
@@ -146,7 +146,7 @@ export function createChatProvider({
 export const unconfiguredProvider = {
   label: 'No model endpoint', defaultModel: undefined,
   async generate(_call) {
-    throw new BloomError('PROVIDER_UNCONFIGURED', 'Start Bloom with --api-base and a chat-completions URL to give teams a model.', 409);
+    throw new BloomError('PROVIDER_UNCONFIGURED', 'Set a provider in config.json under the data directory to give teams a model.', 409);
   },
 };
 
