@@ -169,6 +169,34 @@ because Bloom stops only the process group it launched. Writes under `.git/`
 are refused; other repository metadata outside `.git/` can still be written if
 approved.
 
+## Workspace tools
+
+`src/workspace-tools.mjs` binds Drosera's workspace tool pack to the canonical
+session directory from `workspacePath`. Its file tools check relative paths
+and resolved link targets before content I/O. A recursive text search
+visits regular workspace files in path order. Directory output and search
+matches use workspace-relative names.
+
+Writes queue by canonical path in the Bloom process and replace the target
+atomically. A targeted update needs one exact match, including the check for
+overlapping matches. Command execution uses the canonical workspace as its
+working directory and takes an executable and arguments without shell
+expansion. Bloom forwards `PATH`, `LANG`, and `TERM`. Each command gets a fresh
+temporary `HOME`, and `USERPROFILE` on Windows, outside the workspace and the
+user's home. Bloom removes it after the run. The command deadline
+stops output capture and terminates the launched process. On POSIX it targets
+the process group. Commands run under the local OS account and the coding
+adapter owns the approval and dispatch flow.
+Command arguments are not path-contained in this release. The executor refuses
+`workspace.shell.execute` unless a test opts in, and no Bloom entry point opts
+in. CAP-04.3 adds a command allowlist and argument containment before any live run.
+
+The executor returns `output`, `truncatedBytes`, and `outputSha256`. It keeps a
+UTF-8 prefix ending at a complete code point and hashes the full decoded text
+before truncation. For commands, stdout and stderr contribute in observed
+order, and a timeout reports the text captured up to the deadline alongside
+`timedOut` and a null `exitCode`.
+
 ## Local note writes
 
 The HTTP handler checks the local host and rejects a mismatched Origin before looking up the team. Add note, Correct, Keep and Forget require `confirmed: true` in the request body after that lookup. The browser sends it on the corresponding user action. An authenticated seat gate would require independently verified browser identity and a seat binding. Bloom's session IDs identify local conversations, and the OS account is the trust boundary.
