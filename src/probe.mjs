@@ -95,10 +95,10 @@ const described = slot => slot.source === 'unknown' ? 'unknown: not reported by 
 const statusOf = slot => slot.source === 'unknown' ? 'unknown' : 'pass';
 
 export async function probeProvider({
-  provider, alias, backendModel, apiKey, fetcher = fetch, timeouts = PROBE_TIMEOUTS,
+  provider, alias, backendModel, credential, fetcher = fetch, timeouts = PROBE_TIMEOUTS,
 }) {
   const redact = endpointRedactor(provider.baseURL);
-  const headers = apiKey ? { authorization: 'Bearer ' + apiKey } : {};
+  const headers = credential ? { authorization: 'Bearer ' + credential } : {};
   const checks = [];
   const add = (check, status, detail) => checks.push({ check, status, detail: redact(detail) });
   const slots = { model: unknown, contextLength: unknown, toolCalling: unknown, constrainedOutput: unknown, streaming: unknown };

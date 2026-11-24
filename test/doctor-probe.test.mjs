@@ -40,7 +40,8 @@ const sse = chunks => new Response(new ReadableStream({ start(controller) {
 function fakeServer({ models = [{ id: 'fixture-backend' }], list, completion } = {}) {
   const requests = [];
   const fetcher = async (url, init = {}) => {
-    requests.push({ url: String(url), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null });
+    requests.push({ url: String(url), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null,
+      authorization: init.headers?.authorization ?? null });
     if (String(url).endsWith('/models')) return list ? list(init) : Response.json({ object: 'list', data: models });
     if (String(url).endsWith('/chat/completions')) {
       return completion ? completion(init) : sse([{ model: 'fixture-backend', choices: [{ delta: { content: 'OK' }, finish_reason: null }] }]);
@@ -182,4 +183,15 @@ test('probe-output-never-contains-endpoint-marker', async t => {
   const quiet = fakeServer();
   await doctor(directory, {}, { ...plainStreams(), fetcher: quiet.fetcher });
   assert.equal(quiet.requests.length, 0);
+});
+
+test('probe-sends-credential-only-when-given', async () => {
+  const secret = 'probe-credential-value';
+  const keyed = fakeServer();
+  const result = await probe(keyed, { credential: secret });
+  assert.deepEqual(keyed.requests.map(request => request.authorization), ['Bearer ' + secret, 'Bearer ' + secret]);
+  assert.ok(!JSON.stringify(result).includes(secret));
+  const open = fakeServer();
+  await probe(open);
+  assert.deepEqual(open.requests.map(request => request.authorization), [null, null]);
 });

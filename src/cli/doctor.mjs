@@ -5,6 +5,7 @@ import * as seed from '@vidoxlabs/seed';
 import { probeProvider } from '../probe.mjs';
 import { profileKey, writeProfile } from '../profile-store.mjs';
 import { readTerminalProvider, terminalSelection } from './config.mjs';
+import { selectProviders } from './providers.mjs';
 import { hasColor } from './render/line.mjs';
 
 // With --probe, doctor also asks the configured provider what it supports and saves the profile.
@@ -70,8 +71,8 @@ async function probe(directory, provider, { add, fetcher, env, timeouts }) {
     add('Probe', 'fail', error.message);
     return;
   }
-  const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined;
-  const result = await probeProvider({ provider, ...selection, apiKey, fetcher, ...(timeouts ? { timeouts } : {}) });
+  const { credential } = selectProviders({ ...provider, env, terminal: true });
+  const result = await probeProvider({ provider, ...selection, credential, fetcher, ...(timeouts ? { timeouts } : {}) });
   for (const { check, status, detail } of result.checks) add(check, status, detail);
   try {
     writeProfile(directory, profileKey(provider.name, selection.alias), result.profile);

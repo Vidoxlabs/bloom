@@ -33,9 +33,11 @@ export function readTerminalProvider(directory) {
   let endpoint;
   try { endpoint = inspectEndpoint(provider.baseURL, provider); }
   catch { throw invalid('The provider URL does not meet the endpoint rule.'); }
+  // The config name keys saved model profiles; it is never an address.
+  endpoint.name = name;
   const label = 'provider "' + name + '" (' + endpoint.description + ')';
   const { baseURL, locality, allowInsecureHttp, apiKeyEnv } = provider;
-  return { name, baseURL, locality, allowInsecureHttp, apiKeyEnv, ...endpoint, label, models: config.models };
+  return { baseURL, locality, allowInsecureHttp, apiKeyEnv, ...endpoint, label, models: config.models };
 }
 
 // The alias a run uses and the backend model it names.
