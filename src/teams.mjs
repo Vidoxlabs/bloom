@@ -102,14 +102,14 @@ export class Teams {
     this.fixtureMembers = provider.fixtureMembers ?? [];
     this.store = new TeamStore(harness.store, harness.dataDirectory);
   }
-  create(body) {
+  create(body, { workspace = this.store.desktop } = {}) {
     const name = nameOf(body.name ?? 'Head agent');
     const charter = string(body.charter || 'Coordinate the team, assign owners, and check that the deliverable answers the brief.', 900, 'a head agent charter');
     const calls = integer(body.callLimit ?? 6, 1, 20);
     const tokens = body.tokenLimit == null ? null : integer(body.tokenLimit, 1, 10_000_000);
     const model = body.model ? string(body.model, 200, 'a model ID') : this.provider.defaultModel ?? null;
     return this.harness.store.transaction(() => {
-      const session = this.harness.store.createSession({ workspace: this.store.desktop, adapter: 'team', model });
+      const session = this.harness.store.createSession({ workspace, adapter: 'team', model });
       this.store.create(session.id, name, charter, calls, tokens);
       return this.harness.store.getSession(session.id);
     });

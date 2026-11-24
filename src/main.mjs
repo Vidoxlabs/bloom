@@ -5,8 +5,7 @@ import { parseArgs } from 'node:util';
 import { Store } from './store.mjs';
 import { Harness } from './harness.mjs';
 import { createHandler } from './http.mjs';
-import { createChatProvider, demoProvider, unconfiguredProvider } from './models.mjs';
-import { demoAdapter } from './demo.mjs';
+import { selectProviders } from './cli/providers.mjs';
 
 const { values } = parseArgs({ options: {
   demo: { type: 'boolean' },
@@ -28,16 +27,18 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
 }
 
 const dataDirectory = dataPath(values['data-dir'], values.demo);
-const defaultModel = values['team-model'] ?? process.env.BLOOM_MODEL;
-const teamProvider = values.demo ? demoProvider : values['api-base']
-  ? createChatProvider({ baseURL: values['api-base'], defaultModel, apiKey: process.env.BLOOM_API_KEY })
-  : unconfiguredProvider;
-const store = new Store(dataDirectory);
+let selection;
+try {
+  selection = selectProviders({ demo: values.demo, baseURL: values['api-base'], model: values['team-model'] });
+} catch {
+  console.error('Bloom could not use the configured model provider.');
+  process.exit(1);
+}
+const { redact, ...providers } = selection;
+const store = new Store(dataDirectory, { redact });
 const harness = new Harness({
-  store, dataDirectory, teamProvider,
+  store, dataDirectory, ...providers,
   defaultWorkspace: values.workspace ? resolve(values.workspace) : '',
-  // Coding sessions run on a pluggable runtime. Only the scripted demo runtime ships today.
-  adapters: values.demo ? [demoAdapter] : [],
 });
 const server = createServer(createHandler(harness));
 server.on('error', error => {

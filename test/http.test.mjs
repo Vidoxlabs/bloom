@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import test from 'node:test';
+import { endpointRedactor } from '../src/endpoint-privacy.mjs';
 import { Harness } from '../src/harness.mjs';
 import { createHandler } from '../src/http.mjs';
 import { Store } from '../src/store.mjs';
@@ -36,16 +37,16 @@ class Response extends EventEmitter {
   eventIds() { return this.chunks.flatMap(chunk => chunk.startsWith('id: ') ? [Number(chunk.split('\n')[0].slice(4))] : []); }
 }
 
-function setup(t) {
+function setup(t, { redact, reply = 'Hello from the fixture.' } = {}) {
   const dataDirectory = mkdtempSync(join(tmpdir(), 'vibloom-http-'));
-  const store = new Store(dataDirectory);
+  const store = new Store(dataDirectory, { redact });
   const harness = new Harness({
     dataDirectory, store,
     adapters: [{
       id: 'fixture', label: 'Fixture',
       async run({ model }, { bind, emit }) {
         bind({ nativeId: 'test-runtime-native', model, models: [{ id: 'plain-model', label: 'Default' }] });
-        emit('assistant.delta', { text: 'Hello from the fixture.' });
+        emit('assistant.delta', { text: reply });
         return { stopReason: 'end_turn' };
       },
     }],
@@ -208,4 +209,31 @@ test('note writes check origin and team presence before requiring literal confir
   const forgotten = await send(prefix + '/notes/' + note.id, { method: 'DELETE', body: { confirmed: true } });
   assert.deepEqual(forgotten.json(), { forgotten: true });
   assert.deepEqual((await send(prefix)).json().notes, []);
+});
+
+test('configured addresses never reach the browser event stream or session title', async t => {
+  const marker = 'bloom-browser-endpoint-canary';
+  const address = 'https://' + marker + '.invalid/v1';
+  const { send, harness, store } = setup(t, { redact: endpointRedactor(address), reply: 'Echoed ' + address });
+  const created = await send('/api/sessions', { method: 'POST', body: {} });
+  const { id } = created.json();
+  const url = '/api/sessions/' + id;
+  const stream = await send(url + '/events');
+  const finished = new Promise(resolve => {
+    const unsubscribe = harness.subscribe(id, event => {
+      if (event.type === 'turn.finished') {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+  const started = await send(url + '/turns', { method: 'POST', body: { text: 'Inspect ' + address } });
+  assert.equal(started.status, 202);
+  await finished;
+  const text = stream.chunks.join('');
+  assert.match(text, /redacted endpoint/);
+  assert.ok(!text.includes(marker));
+  assert.ok(!JSON.stringify(store.eventsAfter(id, 0)).includes(marker));
+  assert.ok(!(await send('/api/sessions')).chunks.join('').includes(marker));
+  stream.end();
 });

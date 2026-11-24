@@ -6,7 +6,7 @@ import { Teams } from './teams.mjs';
 import { demoProvider } from './models.mjs';
 import { BloomError } from './errors.mjs';
 
-function workspacePath(path) {
+export function workspacePath(path) {
   try {
     const resolved = realpathSync(path);
     if (!statSync(resolved).isDirectory()) throw new Error('Expected a directory');
@@ -83,7 +83,8 @@ export class Harness {
   }
 
   start(sessionId, request) {
-    const { text, model } = request;
+    const { model } = request;
+    const text = this.store.redact ? this.store.redact(request.text) : request.text;
     if (this.closing) throw new BloomError('HARNESS_CLOSING', 'Bloom is closing.', 503);
     if (typeof text !== 'string' || !text.trim() || text.length > 32_000) {
       throw new BloomError('PROMPT_INVALID', 'Enter a prompt of 1 to 32,000 characters.', 400);
