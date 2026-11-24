@@ -27,6 +27,7 @@ function modelId(value) {
 const endStates = new Map([
   ['end_turn', 'finished'], ['cancelled', 'stopped'], ['refusal', 'refused'],
   ['max_tokens', 'limit'], ['max_turn_requests', 'limit'], ['malformed', 'malformed'],
+  ['rate_limited', 'rate-limited'],
 ]);
 
 export class Harness {

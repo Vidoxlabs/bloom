@@ -45,7 +45,7 @@ Bloom reads `config.json` from its data directory, `~/.bloom` unless you pass `-
 }
 ```
 
-The provider name, here `lab`, is how Bloom refers to the provider in its output. A server on your private network needs `"locality": "local"`, and a plain HTTP server also needs `"allowInsecureHttp": true`. If your server requires a key, the README's Terminal commands section names the provider field that holds the name of the environment variable your shell keeps the key in. Put the key only in that variable, never in the file, a flag or the chat. A provider marked `"locality": "cloud"` is refused until a later cloud opt-in lands; that same provider field is how an AI Studio key will be named.
+The provider name, here `lab`, is how Bloom refers to the provider in its output. A server on your private network needs `"locality": "local"`, and a plain HTTP server also needs `"allowInsecureHttp": true`. If your server requires a key, the README's Terminal commands section names the provider field that holds the name of the environment variable your shell keeps the key in. Put the key only in that variable, never in the file, a flag or the chat.
 
 Check the file without sending anything to the server:
 
@@ -124,6 +124,49 @@ Open the local page the command prints, choose a coding session with the sandbox
 - **A command is refused:** only `node`, `npm` and `git` run, with arguments inside the workspace. The refusal message names the rule.
 - **Replies arrive all at once:** the probe saw that the server does not stream, so the loop asks for whole replies.
 
+## Google AI Studio
+
+Use the OpenAI-compatible base URL `https://generativelanguage.googleapis.com/v1beta/openai` with a cloud provider and the model id `gemini-4-hydrogen` (or the id your AI Studio list shows). Example provider entry:
+
+```json
+"aistudio": {
+  "kind": "chat-completions",
+  "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "locality": "cloud",
+  "apiKeyEnv": "GEMINI_API_KEY"
+}
+```
+
+Put the key only in the shell (type this yourself; do not paste the value into chat or a file): `read -rs GEMINI_API_KEY && export GEMINI_API_KEY`.
+
+Probe and chat need `--allow-cloud`, and chat only inside a sandbox from `scripts/make-sandbox.mjs`:
+
+```bash
+cd bloom && node bin/bloom.mjs doctor --probe --allow-cloud
+```
+
+```bash
+cd bloom && node scripts/make-sandbox.mjs <sandbox folder>
+```
+
+```bash
+cd bloom && node bin/bloom.mjs chat --workspace <sandbox folder> --allow-cloud
+```
+
+While cloud is on, Bloom asks before the first message leaves the machine and before every tool call, including reads. Model rows say cloud. The web workspace stays local only.
+
+## Opt-in live tests
+
+Offline `npm test` never loads these. Against your configured provider:
+
+```bash
+cd bloom && BLOOM_LIVE=1 npm run test:live
+```
+
+At most 20 model calls per run. The suite reads the provider only from bloom's data directory (or `BLOOM_LIVE_DATA_DIR`), never from an endpoint environment variable.
+
 ## Residual risk
 
 Approval of each call is the boundary. `npm test` runs whatever the sandbox's `package.json` scripts say, and the model may have written those scripts in a write you approved. Commands can reach the network: npm is set offline and git is limited to local subcommands, but Bloom does not block network access from the process. The isolated `HOME` only changes an environment variable, so a command can still find your real home folder through the operating system. A detached grandchild process can outlive the call. Git reads the sandbox repository's own configuration. Use a throwaway sandbox, read every approval, and keep the sandbox away from folders you care about. [architecture.md](architecture.md) has the full command gate.
+
+In cloud mode, tool results you approve, including file contents, leave the machine and are sent to the cloud provider. Reject any read you do not want off the machine.

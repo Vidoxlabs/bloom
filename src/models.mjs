@@ -1,5 +1,6 @@
 import { BloomError } from './errors.mjs';
 import { endpointRedactor, streamRedactor } from './endpoint-privacy.mjs';
+import { providerFailureReason, readErrorBody } from './provider-errors.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -25,7 +26,14 @@ async function send(url, body, { headers, signal, fetcher, label }) {
     if (signal.aborted) throw signal.reason;
     throw new BloomError('PROVIDER_OFFLINE', 'Could not connect to ' + label + '.');
   }
-  if (!response.ok) throw new BloomError('PROVIDER_REJECTED', label + ' returned HTTP ' + response.status + '. Check the model, server version and credentials.');
+  if (!response.ok) {
+    const errorBody = await readErrorBody(response);
+    const reason = providerFailureReason({ status: response.status, body: errorBody });
+    if (reason === 'rate-limited') {
+      throw new BloomError('PROVIDER_RATE_LIMITED', label + ' is rate-limited. The turn ends without retrying.');
+    }
+    throw new BloomError('PROVIDER_REJECTED', label + ' returned ' + reason + '. Check the model, server version and credentials.');
+  }
   return response;
 }
 

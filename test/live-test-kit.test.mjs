@@ -159,7 +159,8 @@ test('live-test-runbook-commands-exist', () => {
   const help = spawnSync(process.execPath, [join(root, 'bin', 'bloom.mjs'), '--help'], { encoding: 'utf8' }).stdout;
   for (const line of commands) {
     for (const part of line.split(/&&|;/).map(piece => piece.trim()).filter(Boolean)) {
-      const words = part.split(/\s+/);
+      // Opt-in live tests set BLOOM_LIVE=1 before npm; strip that assignment only.
+      const words = part.replace(/^BLOOM_LIVE=1\s+/, '').split(/\s+/);
       if (words[0] === 'cd' || words[0] === 'git') continue;
       if (words[0] === 'npm') {
         const name = words[1] === 'run' ? words[2] : words[1];
@@ -181,10 +182,13 @@ test('live-test-runbook-keeps-endpoint-private', () => {
   assert.match(runbook, /<your-endpoint>/);
   assert.match(runbook, /<sandbox folder>/);
   for (const line of commands) {
-    assert.doesNotMatch(line, /api-base|https?:|<your-endpoint>|[A-Z_]+=/, line);
+    // BLOOM_LIVE=1 is the opt-in flag, not an endpoint or key assignment.
+    assert.doesNotMatch(line.replace(/\bBLOOM_LIVE=1\b/g, ''), /api-base|<your-endpoint>|[A-Z_]+=/, line);
   }
-  assert.doesNotMatch(runbook, /export [A-Z_]+=|[A-Z]+_KEY\b/);
-  for (const section of ['Offline rehearsal', 'Config', 'Probe', 'Live run', 'Web view', 'Troubleshooting', 'Residual risk']) {
+  // GEMINI_API_KEY is the documented example variable name, never a secret value.
+  assert.doesNotMatch(runbook, /export [A-Z_]+=/);
+  assert.doesNotMatch(runbook.replaceAll('GEMINI_API_KEY', ''), /[A-Z]+_KEY\b/);
+  for (const section of ['Offline rehearsal', 'Config', 'Probe', 'Live run', 'Web view', 'Troubleshooting', 'Google AI Studio', 'Opt-in live tests', 'Residual risk']) {
     assert.match(runbook, new RegExp('^## ' + section, 'm'), section);
   }
 });

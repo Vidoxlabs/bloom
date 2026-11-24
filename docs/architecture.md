@@ -150,6 +150,16 @@ grandchild process can outlive the call, because Bloom stops only the process
 group it launched. Git also reads the repository's own configuration, which can
 name programs; a write under `.git/` asks first like any other write.
 
+## Cloud providers
+
+A provider with `locality` set to `cloud` is refused in the terminal until
+`--allow-cloud` is passed, and only inside a folder created by
+`scripts/make-sandbox.mjs`. While cloud is on, Bloom asks before the first
+message leaves the machine and before every tool call, including reads. Model
+rows say cloud. Approved tool results, including file contents, are sent to the
+cloud provider. The web workspace stays local only. Opt-in live tests run with
+`BLOOM_LIVE=1 npm run test:live` and never from offline `npm test`.
+
 ## Model profiles
 
 `bloom doctor --probe` asks the configured provider what it supports and saves
@@ -198,6 +208,7 @@ The portable suite exercises the budgets, group handoffs, review hold, restart, 
 
 ## Changes
 
+- 2026-11-24: Add cloud opt-in with `--allow-cloud` in a make-sandbox folder, Gemini OpenAI-compatible probe and error mapping, and opt-in live tests (CAP-16, bloom#9).
 - 2026-11-24: Read the web workspace's endpoint only from the private config and show coding rows and approval detail in the browser (CAP-04, bloom#8).
 - 2026-11-24: Add `bloom doctor --probe` and drive the coding loop's budget and streaming from the saved model profile (CAP-16, bloom#7).
 - 2026-11-24: Add the coding loop with strict actions, one shared repair turn, per-call approvals, streamed text, a trace row per call, and the allowlisted command gate (CAP-04, bloom#5).

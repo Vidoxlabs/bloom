@@ -162,6 +162,7 @@ function buildPrompt(task, earlier, steps, budget) {
 export function createCodingRuntime({
   provider,
   headless = false,
+  cloud = false,
   maxSteps = 40,
   profile = null,
   allowedTools = workspaceToolPack.ids(),
@@ -192,6 +193,7 @@ export function createCodingRuntime({
     const tools = createWorkspaceTools(workspace, { commands: workspaceCommandAccess, environment, searchPath, ...toolOptions });
     const steps = [];
     let repairs = 0;
+    let messageApproved = !cloud;
     const elapsed = started => Math.max(0, Math.round(clock() - started));
 
     // One repair turn is shared by argument and output checks; a call that runs resets it.
@@ -205,15 +207,39 @@ export function createCodingRuntime({
 
     for (let call = 1; call <= maxSteps; call += 1) {
       if (signal.aborted) return { stopReason: 'cancelled' };
+      if (cloud && !messageApproved) {
+        if (headless) return { stopReason: 'refusal' };
+        const choice = await hooks.permission({
+          title: 'Send this turn to a cloud model', kind: 'egress', effect: 'egress', toolId: 'cloud-message',
+          summary: 'first message', detail: 'Cloud model will receive:\n' + head(task, 4_000),
+          options: [
+            { id: 'allow-once', kind: 'allow_once', label: 'Allow once' },
+            { id: 'reject', kind: 'reject_once', label: 'Reject' },
+          ],
+        });
+        if (signal.aborted || choice === null) return { stopReason: 'cancelled' };
+        if (choice === 'reject') return { stopReason: 'refusal' };
+        messageApproved = true;
+      }
       const started = clock();
-      const generation = await adopted.generate({
-        system, prompt: buildPrompt(task, memory.earlier, steps, budget), model, signal,
-        ...(streaming ? { onDelta: text => { if (!signal.aborted) hooks.emit('assistant.delta', { text }); } } : {}),
-      });
+      let generation;
+      try {
+        generation = await adopted.generate({
+          system, prompt: buildPrompt(task, memory.earlier, steps, budget), model, signal,
+          ...(streaming ? { onDelta: text => { if (!signal.aborted) hooks.emit('assistant.delta', { text }); } } : {}),
+        });
+      } catch (error) {
+        if (signal.aborted) return { stopReason: 'cancelled' };
+        if (error instanceof BloomError && error.code === 'PROVIDER_RATE_LIMITED') {
+          return { stopReason: 'rate_limited' };
+        }
+        throw error;
+      }
       if (signal.aborted) return { stopReason: 'cancelled' };
       if (!streaming && generation.text) hooks.emit('assistant.delta', { text: generation.text });
       hooks.emit('model.call', {
-        call, durationMs: elapsed(started), model: generation.model, complete: generation.complete, usage: generation.usage,
+        call, durationMs: elapsed(started), model: generation.model, complete: generation.complete,
+        usage: generation.usage, ...(cloud ? { cloud: true } : {}),
       });
       const reply = generation.text;
       const parsed = generation.complete ? parseAction(reply) : { errors: ['The reply was cut off before it finished.'] };
@@ -237,8 +263,10 @@ export function createCodingRuntime({
       const finishRow = (status, details = {}) => hooks.emit('tool.updated', { ...row, status, ...details });
       const toolStarted = clock();
       let approval = 'none';
+      // Cloud mode asks before every tool, including reads, because results leave the machine.
+      const needsApproval = cloud || face.effect !== 'read';
 
-      if (face.effect !== 'read') {
+      if (needsApproval) {
         if (headless) {
           finishRow('refused', { durationMs: elapsed(toolStarted), approval: 'headless' });
           steps.push({ reply, observation: `${DENIED}: this run is headless and cannot write or run commands.` });

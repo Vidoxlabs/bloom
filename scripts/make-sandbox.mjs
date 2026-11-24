@@ -8,6 +8,8 @@ import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { writeSandboxMarker } from '../src/sandbox-marker.mjs';
+
 const demoRepo = fileURLToPath(new URL('../test/fixtures/demo-repo/', import.meta.url));
 const identity = { GIT_AUTHOR_NAME: 'bloom-sandbox', GIT_AUTHOR_EMAIL: 'bloom-sandbox',
   GIT_COMMITTER_NAME: 'bloom-sandbox', GIT_COMMITTER_EMAIL: 'bloom-sandbox' };
@@ -34,6 +36,7 @@ export function makeSandbox(folder) {
   if (enclosingClone(sandbox)) throw new SandboxError('Choose a sandbox folder that is not inside a git clone.');
   mkdirSync(sandbox, { recursive: true });
   cpSync(demoRepo, sandbox, { recursive: true });
+  writeSandboxMarker(sandbox);
   for (const step of [['init', '-q'], ['add', '-A'], ['commit', '-q', '--no-verify', '-m', 'Baseline']]) {
     if (sandboxGit(sandbox, ...step).status !== 0) throw new Error('git ' + step[0] + ' failed in the sandbox.');
   }

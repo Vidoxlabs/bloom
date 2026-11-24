@@ -25,7 +25,9 @@ function traceRow(at, data) {
 
 function modelRow(at, data) {
   const usage = data.usage ? 'in ' + unreported(data.usage.input) + ', out ' + unreported(data.usage.output) : 'usage unreported';
-  return [clockTime(at), 'model', 'call ' + data.call, data.durationMs + ' ms', usage].join('  ');
+  const parts = [clockTime(at), 'model', 'call ' + data.call, data.durationMs + ' ms', usage];
+  if (data.cloud) parts.push('cloud');
+  return parts.join('  ');
 }
 
 export function lineRenderer({ stdout, nextLine, headless = false, policy = 'deny' }) {

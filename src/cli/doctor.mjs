@@ -54,15 +54,19 @@ export async function doctor(directory, values, { stdout, stdin, fetcher = fetch
   }
   add('TTY', stdin.isTTY && stdout.isTTY ? 'pass' : 'unknown', stdin.isTTY && stdout.isTTY ? 'Interactive TTY.' : 'Plain streams.');
   add('Colour', hasColor(stdout) ? 'pass' : 'unknown', hasColor(stdout) ? 'Enabled.' : 'Disabled.');
-  if (values.probe) await probe(directory, provider, { add, fetcher, env, timeouts });
+  if (values.probe) await probe(directory, provider, { add, fetcher, env, timeouts, allowCloud: values['allow-cloud'] });
   if (values.json) stdout.write(JSON.stringify(checks) + '\n');
   else for (const { check, status, detail } of checks) stdout.write(status + '  ' + check + '  ' + detail + '\n');
   return checks.some(check => check.status === 'fail') ? 1 : 0;
 }
 
-async function probe(directory, provider, { add, fetcher, env, timeouts }) {
+async function probe(directory, provider, { add, fetcher, env, timeouts, allowCloud = false }) {
   if (!provider) {
     add('Probe', 'fail', 'Set a provider in config.json under --data-dir before probing.');
+    return;
+  }
+  if (!provider.local && !allowCloud) {
+    add('Probe', 'fail', 'Cloud providers need --allow-cloud before probing.');
     return;
   }
   let selection;
@@ -73,10 +77,14 @@ async function probe(directory, provider, { add, fetcher, env, timeouts }) {
   }
   const { credential } = selectProviders({ ...provider, env, terminal: true });
   const result = await probeProvider({ provider, ...selection, credential, fetcher, ...(timeouts ? { timeouts } : {}) });
-  for (const { check, status, detail } of result.checks) add(check, status, detail);
+  for (const { check, status, detail } of result.checks) {
+    const tagged = !provider.local ? detail + (detail.endsWith('.') ? '' : '.') + ' cloud.' : detail;
+    add(check, status, tagged);
+  }
   try {
     writeProfile(directory, profileKey(provider.name, selection.alias), result.profile);
-    add('Profile', 'pass', 'Saved for ' + provider.label + ', alias ' + selection.alias + '.');
+    add('Profile', 'pass', 'Saved for ' + provider.label + ', alias ' + selection.alias +
+      (provider.local ? '.' : ' (cloud).'));
   } catch {
     add('Profile', 'fail', 'The profile could not be saved in the data directory.');
   }

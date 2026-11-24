@@ -4,6 +4,9 @@
 import { modelProfile } from '@vidoxlabs/seed';
 
 import { endpointRedactor } from './endpoint-privacy.mjs';
+import { providerFailureReason, readErrorBody } from './provider-errors.mjs';
+
+const listedId = id => String(id).replace(/^models\//, '');
 
 export const PROBE_TIMEOUTS = Object.freeze({ list: 5_000, stream: 30_000 });
 // The only message the probe sends. It carries nothing from the user.
@@ -31,9 +34,9 @@ async function request(fetcher, url, init, timeout) {
   try {
     const response = await fetcher(url, { redirect: 'error', ...init, signal });
     if (response.ok) return { response, signal, clear };
-    await response.body?.cancel().catch(() => {});
+    const body = await readErrorBody(response);
     clear();
-    return { reason: 'http-' + response.status };
+    return { reason: providerFailureReason({ status: response.status, body }) };
   } catch (error) {
     clear();
     return { reason: failure(error, signal) };
@@ -58,6 +61,7 @@ function listed(entry, names) {
 }
 
 // Read the reply only far enough to see whether it streams, then stop.
+// A thinking model may send empty content or finish with length; one SSE data chunk is enough.
 async function streams(response) {
   const type = response.headers.get('content-type') ?? '';
   if (!type.includes('text/event-stream') || !response.body) {
@@ -77,12 +81,8 @@ async function streams(response) {
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
         const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return false;
-        try {
-          if (JSON.parse(payload)?.choices) return true;
-        } catch {
-          return false;
-        }
+        if (!payload || payload === '[DONE]') continue;
+        return true;
       }
     }
   } finally {
@@ -120,7 +120,7 @@ export async function probeProvider({
   const ids = entries.map(entry => entry.id);
   const shown = ids.slice(0, MAX_LISTED).join(', ') + (ids.length > MAX_LISTED ? ', and ' + (ids.length - MAX_LISTED) + ' more' : '');
   add('Model IDs', ids.length ? 'pass' : 'unknown', ids.length ? shown : 'unknown: the server listed no models');
-  const entry = entries.find(item => item.id === backendModel);
+  const entry = entries.find(item => item.id === backendModel || listedId(item.id) === listedId(backendModel));
   if (!entry) {
     add('Model', 'fail', 'Alias ' + alias + ' is not among the listed models.');
     return finish();

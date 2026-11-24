@@ -69,6 +69,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `shell-refuses-unlisted-command`, `shell-refuses-absolute-and-parent-args`, `shell-refuses-symlinked-outside-arg`, `shell-refuses-eval-flags`, `shell-home-is-isolated`, `shell-home-cleanup-failure-flagged`, `command-access-has-one-production-caller`.
 - `stream-usage-null-when-unreported`, `abort-returns-no-completed-record`.
 - `make-sandbox-creates-baseline-commit`, `make-sandbox-refuses-non-empty-or-inside-clone`, `web-workspace-runs-coding-loop-from-private-config`, `web-workspace-refuses-cloud-and-has-no-endpoint-option`, `web-coding-view-formats-rows`, `live-test-runbook-commands-exist`, `live-test-runbook-keeps-endpoint-private`.
+- `cloud-refused-without-flag-and-config`, `cloud-refused-outside-sandbox`, `cloud-reads-ask-first`, `key-and-endpoint-markers-never-printed`, `npm-test-does-not-load-live-tests`.
 
 ## Slices
 
@@ -101,9 +102,13 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `D26` Decided 2026-11-24 in bloom#8: `--api-base` on `npm start`: remove the flag entirely, so the web workspace reads the endpoint only from the private config file (recommended)? The alternative keeps it working but undocumented. Owner's answer, verbatim: "Accept all".
 - `D27` Decided 2026-11-24 in bloom#8: Web key: the web workspace uses the same key rule as the terminal, the config's named variable. That drops the `[key variable name]` default. (Recommend yes.) Owner's answer, verbatim: "Accept all".
 - `D28` Decided 2026-11-24 in bloom#8: Opening a web coding session: `npm start -- --workspace <sandbox folder>` opens a coding session for that folder when the private config has a provider. This reuses the existing `--workspace` flag. (Recommend yes.) Owner's answer, verbatim: "Accept all".
+- `D29` Decided 2026-11-24 in bloom#9: Cloud opt-in for AI Studio. How should bloom allow a cloud provider? Owner's answer, verbatim: "continue with recommended" (A: locality cloud plus --allow-cloud, terminal only, make-sandbox only, every tool including reads asks first, first message shown before send, model rows say cloud).
+- `D30` Decided 2026-11-24 in bloom#9: May docs and tests name GEMINI_API_KEY as the example variable? Owner's answer, verbatim: "continue with recommended" (yes).
+- `D31` Decided 2026-11-24 in bloom#9: Live tests opt in with BLOOM_LIVE=1 and npm run test:live, at most 20 model calls? Owner's answer, verbatim: "continue with recommended" (yes).
 
 ## Evidence
 
+- Cloud opt-in and Gemini (bloom#9): `src/sandbox-marker.mjs` and `scripts/make-sandbox.mjs` mark throwaway sandboxes; `--allow-cloud` gates cloud providers in the terminal; `src/provider-errors.mjs` maps Google rate-limit errors; `test/cloud-gemini.test.mjs` covers the offline gate and probe shape; `test/live/live-suite.live.mjs` is loaded only by `npm run test:live`.
 - Live-test kit (bloom#8): `scripts/make-sandbox.mjs` makes the throwaway sandbox, `src/web.mjs` builds the web workspace from the private config only, `public/coding-view.js` formats the browser's model and tool rows, and `docs/live-test.md` is the runbook. `test/live-test-kit.test.mjs` covers each, and checks that every command the runbook names exists.
 - `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
 - `CAP-04.3`: `test/coding-loop.test.mjs` runs the loop over a synthetic project with a scripted provider and zero network calls, writes the byte-stable session `test/fixtures/demo-session.jsonl` through the export path, and covers the repair budget, admission, approvals, headless refusal, trace rows and endpoint masking. `test/shell-gate.test.mjs` covers the command gate, `test/model-stream.test.mjs` the streamed client, and `test/cli-coding.test.mjs` the headless terminal path.
@@ -111,6 +116,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Changes
 
+- `2026-11-24`: Add cloud opt-in, Gemini OpenAI-compatible probe and error mapping, opt-in live tests, and record D29 to D31 (CAP-16 / CAP-04, bloom#9).
 - `2026-11-24`: Add the live-test kit and the web coding view, read the web endpoint only from the private config, and record D25 to D28 (CAP-04, bloom#8).
 - `2026-11-24`: Add the coding loop, the streamed model client, and the allowlisted command gate, and record the L2 owner decisions (CAP-04, bloom#5).
 - `2026-11-24`: Record the D12 tool face and D15 dependency decisions and add workspace executors (CAP-04, bloom#4).

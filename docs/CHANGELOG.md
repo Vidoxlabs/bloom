@@ -14,6 +14,11 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 - Pre-dispatch argument checks and output checks sharing one repair turn (CAP-03, bloom#5).
 - `bloom doctor --probe` model profile capture, with the coding loop's budget and streaming taken from the saved profile (CAP-16, bloom#7).
 - Live-test kit: a sandbox maker, the web workspace's coding view with model rows, tool rows and approval detail, and the `docs/live-test.md` runbook (CAP-04, bloom#8).
+- Cloud provider opt-in with `--allow-cloud` in a make-sandbox folder, Gemini OpenAI-compatible probe and error mapping, and opt-in `npm run test:live` (CAP-16, bloom#9).
+
+### Changed
+
+- Terminal cloud providers need `--allow-cloud` inside a make-sandbox folder; while cloud is on, reads ask first and model rows say cloud (CAP-16, bloom#9).
 
 ### Fixed
 

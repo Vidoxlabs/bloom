@@ -132,13 +132,16 @@
         "test/shell-gate.test.mjs",
         "test/model-stream.test.mjs",
         "test/cli-coding.test.mjs",
-        "test/live-test-kit.test.mjs"
+        "test/live-test-kit.test.mjs",
+        "test/cloud-gemini.test.mjs",
+        "test/live/live-suite.live.mjs"
       ],
       "prs": [
         "drosera#4",
         "bloom#4",
         "bloom#5",
-        "bloom#8"
+        "bloom#8",
+        "bloom#9"
       ],
       "commits": [],
       "adr": [
@@ -513,10 +516,12 @@
       ],
       "tests": [
         "test/doctor-probe.test.mjs",
-        "test/cli-coding.test.mjs"
+        "test/cli-coding.test.mjs",
+        "test/cloud-gemini.test.mjs"
       ],
       "prs": [
-        "bloom#7"
+        "bloom#7",
+        "bloom#9"
       ],
       "commits": [],
       "adr": [],
