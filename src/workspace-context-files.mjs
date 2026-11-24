@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, opendirSync, readSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import { isOutside } from './workspace-tool-utils.mjs';
 
@@ -45,7 +45,8 @@ function directoryEntries(directory, limit) {
 }
 
 function readBounded(path, original, maxBytes) {
-  const handle = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  const posixFlags = process.platform === 'win32' ? 0 : (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+  const handle = openSync(path, constants.O_RDONLY | posixFlags);
   try {
     const stat = fstatSync(handle);
     if (!stat.isFile() || stat.ino !== original.ino || stat.dev !== original.dev) throw new Error('Workspace entry changed.');
@@ -98,7 +99,7 @@ export function walkWorkspace(directory, { includeHidden = false, include = [], 
       const source = join(absolute, entry.name);
       try {
         const target = realpathSync.native(source);
-        if (entry.isSymbolicLink() || target !== source) { unknown(path, 'symlink'); continue; }
+        if (entry.isSymbolicLink() || relative(source, target) !== '') { unknown(path, 'symlink'); continue; }
         if (isOutside(root, target)) { unknown(path, 'outside-workspace'); continue; }
         const stat = lstatSync(target);
         if (stat.isDirectory()) {
