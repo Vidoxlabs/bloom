@@ -38,6 +38,34 @@ A team provider implements `generate({system, prompt, model, signal, ...})` and 
 
 Stopping or losing a server never implicitly repeats a model call. In-progress team outputs appear only after the model returns a complete structured response. A coding session runs on a pluggable runtime: `run(input, hooks)` streams text, plan and tool events, asks for approvals through the harness and returns a stop reason. Bloom offers each option the runtime sends, such as **Allow once**, **Always allow** and **Reject**. No coding runtime ships with this release; the scripted demo runtime is the only one, and without a runtime the page offers teams only.
 
+## Workspace tools
+
+`src/workspace-tools.mjs` binds Drosera's workspace tool pack to the canonical
+session directory from `workspacePath`. Its file tools check relative paths
+and resolved link targets before content I/O. A recursive text search
+visits regular workspace files in path order. Directory output and search
+matches use workspace-relative names.
+
+Writes queue by canonical path in the Bloom process and replace the target
+atomically. A targeted update needs one exact match, including the check for
+overlapping matches. Command execution uses the canonical workspace as its
+working directory and takes an executable and arguments without shell
+expansion. Bloom forwards `PATH`, `LANG`, and `TERM`. Each command gets a fresh
+temporary `HOME`, and `USERPROFILE` on Windows, outside the workspace and the
+user's home. Bloom removes it after the run. The command deadline
+stops output capture and terminates the launched process. On POSIX it targets
+the process group. Commands run under the local OS account and the coding
+adapter owns the approval and dispatch flow.
+Command arguments are not path-contained in this release. The executor refuses
+`workspace.shell.execute` unless a test opts in, and no Bloom entry point opts
+in. CAP-04.3 adds a command allowlist and argument containment before any live run.
+
+The executor returns `output`, `truncatedBytes`, and `outputSha256`. It keeps a
+UTF-8 prefix ending at a complete code point and hashes the full decoded text
+before truncation. For commands, stdout and stderr contribute in observed
+order, and a timeout reports the text captured up to the deadline alongside
+`timedOut` and a null `exitCode`.
+
 ## Local note writes
 
 The HTTP handler checks the local host and rejects a mismatched Origin before looking up the team. Add note, Correct, Keep and Forget require `confirmed: true` in the request body after that lookup. The browser sends it on the corresponding user action. An authenticated seat gate would require independently verified browser identity and a seat binding. Bloom's session IDs identify local conversations, and the OS account is the trust boundary.
@@ -57,3 +85,8 @@ Omit `--check` to update the used properties. A fresh Bloom checkout runs from t
 ## Verification
 
 The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam and the coding-session harness against a scripted runtime. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
+
+## Changes
+
+- 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
+- 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).
