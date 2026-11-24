@@ -22,7 +22,11 @@ export const ALLOWED_COMMANDS = Object.freeze(['node', 'npm', 'git']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'cmd', 'powershell', 'pwsh']);
 const GIT_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'add', 'commit']);
 const REFUSED_FLAGS = {
-  node: new Set(['-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type', '--loader', '--experimental-loader', '--run']),
+  node: new Set([
+    '-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type', '--loader',
+    '--experimental-loader', '--run',
+    '--inspect', '--inspect-brk', '--inspect-port', '--inspect-wait',
+  ]),
   npm: new Set([
     '--prefix', '-C', '-g', '--global', '--location', '--script-shell', '--node-options',
     '--offline', '--no-offline', '--prefer-online', '--registry', '--userconfig', '--globalconfig',
@@ -246,12 +250,31 @@ function flagParts(argument) {
 function refusedFlag(command, flag) {
   if (!flag) return false;
   if (REFUSED_FLAGS[command].has(flag)) return true;
+  // npm expands unambiguous option prefixes; refuse any prefix of a refused long option.
+  if (command === 'npm' && npmFlagMatchesRefused(flag)) return true;
   // Node accepts clustered short options such as -pe, so any cluster with e, p or r is refused.
   return command === 'node' && /^-[a-z]{2,}$/i.test(flag) && /[epr]/.test(flag.slice(1));
 }
 
+function npmFlagMatchesRefused(flag) {
+  const lower = flag.toLowerCase();
+  if (REFUSED_FLAGS.npm.has(lower) || NPM_REDIRECT_FLAGS.has(lower)) return true;
+  if (!lower.startsWith('--') || lower.length < 3) return false;
+  for (const refused of REFUSED_FLAGS.npm) {
+    const name = refused.toLowerCase();
+    if (name.startsWith('--') && name.startsWith(lower)) return true;
+  }
+  return false;
+}
+
 function refusedFlagReason(command, flag) {
-  if (command === 'npm' && NPM_REDIRECT_FLAGS.has(flag)) return NPM_REDIRECT_REASON;
+  if (command === 'npm') {
+    const lower = flag.toLowerCase();
+    for (const refused of NPM_REDIRECT_FLAGS) {
+      const name = refused.toLowerCase();
+      if (lower === name || (lower.startsWith('--') && name.startsWith(lower))) return NPM_REDIRECT_REASON;
+    }
+  }
   return REFUSED_FLAG_REASON[command];
 }
 
@@ -273,6 +296,22 @@ async function containedArgument(root, value) {
 function underDotGit(path) {
   if (typeof path !== 'string' || !path) return false;
   return path.split(/[\\/]/).some(part => part.toLowerCase() === '.git');
+}
+
+// After realpath: refuse when a resolved segment is .git (case-insensitive), a Windows
+// trailing-dot/space variant, or an 8.3 short name such as GIT~1.
+function normalizePathSegment(part) {
+  return part.replace(/[.\s]+$/g, '').toLowerCase();
+}
+
+function underDotGitTarget(root, target) {
+  const rel = relative(root, target);
+  if (!rel || rel === '.') return false;
+  return rel.split(/[\\/]/).some(part => {
+    if (!part || part === '.') return false;
+    if (normalizePathSegment(part) === '.git') return true;
+    return /^git~\d+$/i.test(part);
+  });
 }
 
 function refuseDotGit() {
@@ -302,7 +341,12 @@ async function checkCommandRequest(root, args) {
   if (command === 'git' && !GIT_SUBCOMMANDS.has(argv[0])) {
     throw refuseCommand('git is limited to status, diff, log, add and commit.');
   }
-  return { command, args: [...argv] };
+  const forwarded = [...argv];
+  // Empty diff.external via GIT_CONFIG still invokes a blank program; force the builtin instead.
+  if (command === 'git' && (forwarded[0] === 'diff' || forwarded[0] === 'log') && !forwarded.includes('--no-ext-diff')) {
+    forwarded.splice(1, 0, '--no-ext-diff');
+  }
+  return { command, args: forwarded };
 }
 
 // Resolve an allowed name against the search path fixed when the tools were created. Relative
@@ -365,15 +409,13 @@ function commandEnvironment(environment, home, { hooksPath } = {}) {
   });
   if (hooksPath) {
     Object.assign(env, {
-      GIT_CONFIG_COUNT: '4',
+      GIT_CONFIG_COUNT: '3',
       GIT_CONFIG_KEY_0: 'core.fsmonitor',
       GIT_CONFIG_VALUE_0: 'false',
       GIT_CONFIG_KEY_1: 'core.hooksPath',
       GIT_CONFIG_VALUE_1: hooksPath,
-      GIT_CONFIG_KEY_2: 'diff.external',
-      GIT_CONFIG_VALUE_2: '',
-      GIT_CONFIG_KEY_3: 'core.pager',
-      GIT_CONFIG_VALUE_3: 'cat',
+      GIT_CONFIG_KEY_2: 'core.pager',
+      GIT_CONFIG_VALUE_2: 'cat',
     });
   }
   return env;
@@ -498,10 +540,14 @@ export function createWorkspaceTools(workspace, {
       }
 
       const requested = args.path === undefined && (id === 'workspace.dir.list' || id === 'workspace.text.search') ? '.' : args.path;
-      if ((id === 'workspace.file.write' || id === 'workspace.file.update') && underDotGit(requested)) {
+      const writing = id === 'workspace.file.write' || id === 'workspace.file.update';
+      if (writing && underDotGit(requested)) {
         throw refuseDotGit();
       }
       const target = await canonicalTarget(root, requestedPath(root, requested), id === 'workspace.file.write');
+      if (writing && underDotGitTarget(root, target)) {
+        throw refuseDotGit();
+      }
       if (id === 'workspace.file.write' || id === 'workspace.file.update') {
         const update = id === 'workspace.file.update';
         await serializeWrite(target, async () => {
