@@ -59,9 +59,9 @@
           <h3 id="suggestions-heading" class="usage-heading" hidden>Suggested by agents</h3><p id="suggestions-hint" class="hint" hidden>Agents never use a suggestion until you keep it.</p><ul id="suggestions" class="list" aria-labelledby="suggestions-heading"></ul>
         </section>
       </div>
-      <div class="section-head"><h2>Activity</h2><span id="turn-state" class="turn-state" aria-live="polite">Idle</span></div>
+      <div class="section-head"><h2>Activity</h2><span id="turn-state" class="turn-state" role="status" data-state="idle">Idle</span></div>
       <p class="activity-empty" id="activity-empty">Activity appears when a turn starts.</p><h3 id="usage-heading" class="usage-heading">Usage</h3><div id="usage" aria-live="polite"></div>
-      <div id="approvals" aria-label="Pending approvals"></div><ol id="plan" class="plan" aria-label="Agent plan"></ol><ul id="tools" class="tools" aria-label="Tool calls"></ul>
+      <div id="approvals" aria-label="Pending approvals"></div><ol id="plan" class="plan" aria-label="Agent plan"></ol><ul id="tools" class="tools" aria-label="Tool call trace"></ul>
     </aside>
   </main>
   <dialog id="editor"><form id="editor-form" class="stack"><h2 id="editor-title">Add a file</h2>
