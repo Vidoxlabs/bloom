@@ -124,3 +124,15 @@ pre { font: inherit; overflow-wrap: anywhere; max-height: 55vh; overflow: auto; 
 #suggestions li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: var(--vi-space-gap-compact-default); }
 .is-crossteam { border-inline-start: 2px solid var(--vi-colors-surface-accent-violet-base); padding-inline-start: var(--vi-space-gap-spacious-default); }
 #tools details p { margin-top: var(--vi-space-gap-dense-default); }
+.turn-state[data-state="running"] { color: var(--vi-colors-surface-accent-violet-base); }
+.turn-state[data-state="stopping"] { color: var(--vi-colors-status-indicator-warning-base); }
+.turn-state[data-state="failed"] { color: var(--vi-colors-status-indicator-error-base); }
+.turn-state[data-state="completed"] { color: var(--vi-colors-text-content-primary-base); }
+.usage-budget-meter { display: grid; gap: var(--vi-space-gap-dense-default); }
+.usage-metric { font-size: var(--vi-typography-typography-size-xs-base); }
+.usage-progress { inline-size: 100%; block-size: var(--vi-space-gap-compact-default); accent-color: var(--vi-colors-surface-accent-violet-base); }
+.tool-call-trace-card { display: grid; gap: var(--vi-space-gap-dense-default); }
+.output-viewer { display: grid; gap: var(--vi-space-gap-dense-default); }
+.output-viewer summary { color: var(--vi-colors-text-content-secondary-base); font-size: var(--vi-typography-typography-size-sm-base); }
+.tool-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--vi-space-gap-compact-default); }
+.tool-title .hint { margin-inline-start: 0; }

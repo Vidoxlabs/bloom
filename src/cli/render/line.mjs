@@ -1,9 +1,7 @@
-import { styleText } from 'node:util';
 import { headlessChoice } from './json.mjs';
+import { paintRole, statusRole } from './theme.mjs';
 
-export function hasColor(stdout, env = process.env) {
-  return Boolean(stdout.isTTY) && env.NO_COLOR === undefined && env.TERM !== 'dumb';
-}
+export { hasColor } from './theme.mjs';
 
 const unreported = value => value ?? 'unreported';
 const plain = value => String(value).replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, '');
@@ -31,27 +29,27 @@ function modelRow(at, data) {
 }
 
 export function lineRenderer({ stdout, nextLine, headless = false, policy = 'deny' }) {
-  const paint = (color, value) => hasColor(stdout) ? styleText(color, value, { validateStream: false }) : value;
+  const paint = (role, value) => paintRole(role, plain(value), stdout);
   let midLine = false;
   const write = value => {
     if (!value) return;
     stdout.write(value);
     midLine = !value.endsWith('\n');
   };
-  const line = value => {
-    write((midLine ? '\n' : '') + plain(value) + '\n');
+  const line = (value, role = null) => {
+    write((midLine ? '\n' : '') + (role ? paint(role, value) : plain(value)) + '\n');
   };
   return {
     onEvent({ type, data = {}, ...result }) {
       switch (type) {
         case 'session.header': line('Session ' + result.sessionId); break;
-        case 'user.message': write((midLine ? '\n' : '') + paint('cyan', 'You') + '  ' + plain(data.text) + '\n'); break;
+        case 'user.message': write((midLine ? '\n' : '') + paint('surface-accent-violet-base', 'You') + '  ' + plain(data.text) + '\n'); break;
         case 'team.message': line(data.author + '  ' + data.text); break;
         case 'assistant.delta':
           if (data.final) line('\nAnswer  ' + data.text);
           else write(plain(data.text).replace(/\r/g, ''));
           break;
-        case 'model.call': line(modelRow(result.at, data)); break;
+        case 'model.call': line(modelRow(result.at, data), 'text-content-secondary-base'); break;
         case 'agent.connected': line('Model ' + unreported(data.model)); break;
         case 'team.call': line(data.actor + '  ' + data.phase + ' (' + data.calls + '/' + data.limit + ')'); break;
         case 'team.recall': line(data.actor + ' recalled ' + data.count + ' notes'); break;
@@ -66,7 +64,7 @@ export function lineRenderer({ stdout, nextLine, headless = false, policy = 'den
         case 'plan.updated': for (const entry of data.entries) line(entry.status + '  ' + entry.text); break;
         case 'tool.updated':
           if (data.toolId && finalStatuses.has(data.status) && data.durationMs !== undefined) {
-            line(traceRow(result.at, data));
+            line(traceRow(result.at, data), statusRole(data.status));
             if (typeof data.output === 'string' && data.output) {
               for (const text of data.output.replace(/\n$/, '').split('\n')) line('    | ' + text);
             }
@@ -79,8 +77,8 @@ export function lineRenderer({ stdout, nextLine, headless = false, policy = 'den
           if (data.detail) for (const text of String(data.detail).split('\n')) line('    ' + text);
           break;
         case 'permission.resolved': line('Permission ' + data.kind); break;
-        case 'turn.finished': line('\nTurn ' + data.status); break;
-        case 'turn.stopping': line('Stopping turn'); break;
+        case 'turn.finished': line('\nTurn ' + data.status, statusRole(data.status)); break;
+        case 'turn.stopping': line('Stopping turn', statusRole('stopping')); break;
       }
     },
     async prompt(request) {

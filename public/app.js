@@ -1,4 +1,4 @@
-import { modelRow, toolRow } from './coding-view.js';
+import { modelRow, outputViewer, toolRow, usageBudget } from './coding-view.js';
 import { teamView } from './team.js';
 const $ = id => document.getElementById(id);
 const drafts = new Map();
@@ -13,7 +13,7 @@ const labels = {
 const state = {
   sessions: [], session: null, stream: null, currentTurn: null, turnState: 'idle',
   submitting: false, starting: false, connected: false, tools: new Map(),
-  approvals: new Map(), messages: new Map(), adapterLabels: new Map(),
+  approvals: new Map(), messages: new Map(), adapterLabels: new Map(), usage: {},
 };
 
 function node(tag, text, className) {
@@ -90,7 +90,15 @@ function clearActivity() {
   $('plan').replaceChildren();
   $('tools').replaceChildren();
   $('approvals').replaceChildren();
+  state.usage = {};
+  $('usage').replaceChildren();
   $('activity-empty').hidden = false;
+}
+
+function renderUsage() {
+  // A team session renders its own usage summary, per actor, into the same region.
+  if (state.session?.adapter === 'team') return;
+  $('usage').replaceChildren(usageBudget(state.usage));
 }
 
 function selectSession(session) {
@@ -189,7 +197,7 @@ function renderPlan(entries) {
 
 function renderTool(update) {
   const current = state.tools.get(update.id);
-  const row = current?.row ?? node('li');
+  const row = current?.row ?? node('li', null, 'tool-call-trace-card');
   const tool = { ...current?.tool, ...update };
   if (!current) $('tools').append(row);
   state.tools.set(tool.id, { tool, row });
@@ -199,16 +207,20 @@ function renderTool(update) {
   if (view.meta) detail.append(node('span', view.meta, 'hint'));
   row.dataset.phase = view.phase;
   row.replaceChildren(detail, node('span', labels[view.phase] ?? labels.pending, 'step-state'));
-  if (view.output) row.append(node('pre', view.output, 'tool-output'));
+  if (view.output) row.append(outputViewer(view.title, view.output));
+  state.usage.toolCalls = state.tools.size;
+  renderUsage();
   $('activity-empty').hidden = true;
 }
 
 // One row per model call, beside the tool rows, in call order.
 function renderModelCall(data) {
-  const row = node('li');
+  const row = node('li', null, 'tool-call-trace-card');
   row.dataset.phase = data.complete ? 'completed' : 'failed';
   row.append(node('div', modelRow(data), 'tool-title'), node('span', data.complete ? 'Complete' : 'Incomplete', 'step-state'));
   $('tools').append(row);
+  state.usage.modelCalls = data.call;
+  renderUsage();
   $('activity-empty').hidden = true;
 }
 
@@ -277,7 +289,17 @@ function apply({ seq, turnId, type, data }) {
       }
       break;
     case 'model.usage':
-      $('usage').textContent = 'Tokens: ' + (data.total ?? 'unreported') + ' · Input: ' + (data.input ?? 'unreported') + ' · Output: ' + (data.output ?? 'unreported') + ' · Cache read: ' + (data.cacheRead ?? 'unreported') + ' · Cache write: ' + (data.cacheWrite ?? 'unreported');
+      Object.assign(state.usage, { ...data, usage: true });
+      renderUsage();
+      break;
+    // A team turn nests its figures under `usage`, beside the actor and the call count.
+    case 'team.usage':
+      Object.assign(state.usage, { ...data, ...(data.usage ?? {}), usage: true });
+      renderUsage();
+      break;
+    case 'team.call':
+      Object.assign(state.usage, { modelCalls: data.calls, modelLimit: data.limit });
+      renderUsage();
       break;
     case 'team.message':
       message(turnId, 'assistant', data.text, data.author, data.file, data.assignments, data.verdict,
