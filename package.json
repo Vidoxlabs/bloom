@@ -6,7 +6,7 @@
   "license": "MIT",
   "dependencies": {
     "@vidoxlabs/drosera": "github:Vidoxlabs/drosera#033f2907c4cdbcd43598d3087992a1ae1850a531",
-    "@vidoxlabs/seed": "github:Vidoxlabs/seed#7c0cdae3779a5b55aebabe1b055df4978e85962e"
+    "@vidoxlabs/seed": "github:Vidoxlabs/seed#41009c336a904b0a2d7390a409bfc1bd16162498"
   },
   "engines": {
     "node": ">=22.13.0"
