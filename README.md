@@ -18,17 +18,17 @@ Open **http://127.0.0.1:4317**, choose **Create a team** and give the head agent
 
 ## Connect a model endpoint
 
-Teams run on any service that speaks the chat-completions HTTP API (`POST {base}/chat/completions`). Bloom names no default service.
+Teams and coding sessions run on any service that speaks the chat-completions HTTP API (`POST {base}/chat/completions`). Bloom names no default service. The endpoint lives only in the private `config.json` in Bloom's data directory, described under **Terminal commands** below, and neither the web workspace nor the terminal takes it on the command line.
 
 ```sh
-npm start -- --api-base '<your-endpoint>' --team-model local-model
+npm start -- --workspace '<sandbox folder>'
 ```
 
-Use your server's address and model. A hosted endpoint must use HTTPS; set `BLOOM_API_KEY` in the environment if it needs a key. Team calls send the brief and admitted evidence to that endpoint. Started without `--api-base`, Bloom still opens the workspace, notes and files, and a team turn stops with a message naming the flag.
+The web workspace follows the terminal's rules: local providers only, the configured key setting, and the model profile saved by `bloom doctor --probe`. Team calls send the brief and admitted evidence to that endpoint. Without a provider, Bloom still opens the workspace, notes and files, and a team turn stops with a message pointing at `config.json`.
 
 Every provider runs behind [seed](https://github.com/Vidoxlabs/seed)'s provider seam: Bloom checks the adapter when it starts and checks every reply against seed's record before the team reads it. A reply outside that record stops the turn.
 
-**Coding sessions** need a coding runtime, and none ships with Bloom yet. The scripted demo runtime shows the coding view, with streamed plans, tool activity and approvals. Outside the demo, the **Create a coding session** choice is hidden, and coding sessions saved by an earlier version stay readable but cannot start a new turn.
+**Coding sessions** run the coding loop in the chosen folder when a provider is configured. The browser shows streamed text, a row for every model call and tool call, and an approval card before every write and every command. The scripted demo runtime shows the same view without a model. [docs/live-test.md](docs/live-test.md) is the runbook for a first live run in a throwaway sandbox.
 
 ## Terminal commands
 
