@@ -21,7 +21,8 @@ export async function runTurn(harness, session, request, renderer, controls, out
     const { type, data } = event;
     renderer.onEvent(maskWorkspace(event, session.workspace));
     switch (type) {
-      case 'assistant.delta': finalMessage += data.text; break;
+      case 'assistant.delta': finalMessage = data.final ? data.text : finalMessage + data.text; break;
+      case 'model.call': calls += 1; figures.push(data.usage); break;
       case 'team.message': finalMessage = data.text; break;
       case 'team.call': calls = data.calls; break;
       case 'team.usage': figures.push(data.usage); break;

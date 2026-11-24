@@ -26,12 +26,13 @@ function modelId(value) {
 
 const endStates = new Map([
   ['end_turn', 'finished'], ['cancelled', 'stopped'], ['refusal', 'refused'],
-  ['max_tokens', 'limit'], ['max_turn_requests', 'limit'],
+  ['max_tokens', 'limit'], ['max_turn_requests', 'limit'], ['malformed', 'malformed'],
 ]);
 
 export class Harness {
-  constructor({ store, adapters, dataDirectory, defaultWorkspace = '', teamProvider = demoProvider }) {
+  constructor({ store, adapters, dataDirectory, defaultWorkspace = '', teamProvider = demoProvider, newId = randomUUID }) {
     this.store = store;
+    this.newId = newId;
     this.adapters = new Map(adapters.map(adapter => [adapter.id, adapter]));
     this.dataDirectory = dataDirectory;
     this.defaultWorkspace = defaultWorkspace;
@@ -55,7 +56,7 @@ export class Harness {
     if (typeof workspace !== 'string' || (workspace && !isAbsolute(workspace))) {
       throw new BloomError('WORKSPACE_INVALID', 'Enter an absolute workspace path or leave it blank for Scratch.', 400);
     }
-    const id = randomUUID();
+    const id = this.newId();
     const path = workspace || join(this.dataDirectory, 'scratch', id);
     if (!workspace) mkdirSync(path, { recursive: true, mode: 0o700 });
     return this.store.createSession({ id, workspace: workspacePath(path), adapter, model: modelId(model) });
@@ -169,7 +170,7 @@ export class Harness {
 
   requestPermission(sessionId, state, request) {
     if (state.controller.signal.aborted) return null;
-    const id = randomUUID();
+    const id = this.newId();
     return new Promise(resolve => {
       state.permissions.set(id, { options: request.options, resolve });
       this.event(sessionId, state.id, 'permission.requested', { id, ...request });

@@ -8,8 +8,11 @@ import { redactValue } from './endpoint-privacy.mjs';
 const now = () => new Date().toISOString();
 
 export class Store {
-  constructor(directory, { redact } = {}) {
+  // clock and newId default to the wall clock and random UUIDs; tests pass counters for stable exports.
+  constructor(directory, { redact, clock = now, newId = randomUUID } = {}) {
     this.redact = redact;
+    this.now = clock;
+    this.newId = newId;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, 'vibloom.sqlite');
     closeSync(openSync(path, 'a', 0o600));
@@ -54,9 +57,9 @@ export class Store {
     }
   }
 
-  createSession({ id = randomUUID(), workspace, adapter, model }) {
+  createSession({ id = this.newId(), workspace, adapter, model }) {
     this.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, NULL, ?, ?)')
-      .run(id, workspace, adapter, 'New session', model, now());
+      .run(id, workspace, adapter, 'New session', model, this.now());
     return this.getSession(id);
   }
 
@@ -76,7 +79,7 @@ export class Store {
 
   event(sessionId, turnId, type, data) {
     if (this.redact) data = redactValue(data, this.redact);
-    const at = now();
+    const at = this.now();
     const result = this.db.prepare('INSERT INTO events (session_id, turn_id, type, data, at) VALUES (?, ?, ?, ?, ?)')
       .run(sessionId, turnId, type, JSON.stringify(data), at);
     return { seq: Number(result.lastInsertRowid), turnId, type, data, at };
@@ -102,16 +105,16 @@ export class Store {
       if (this.db.prepare("SELECT 1 FROM turns WHERE session_id = ? AND status = 'running'").get(sessionId)) {
         throw new BloomError('TURN_ACTIVE', 'This session already has an active turn.', 409);
       }
-      const id = randomUUID();
+      const id = this.newId();
       this.db.prepare("INSERT INTO turns VALUES (?, ?, ?, 'running', ?, NULL)")
-        .run(id, sessionId, process.pid, now());
+        .run(id, sessionId, process.pid, this.now());
       if (key) this.db.prepare('INSERT INTO turn_requests VALUES (?,?,?,?)').run(sessionId,key.id,key.fingerprint,id);
       this.db.prepare("UPDATE sessions SET model=? WHERE id=? AND adapter='team'").run(model,sessionId);
       const heading = prompt.trim().replace(/\s+/g, ' ').slice(0, 72);
       const { title } = this.db.prepare(`
         UPDATE sessions SET title = CASE WHEN title = 'New session' THEN ? ELSE title END, updated_at = ?
         WHERE id = ? RETURNING title
-      `).get(heading, now(), sessionId);
+      `).get(heading, this.now(), sessionId);
       return { id, events: [
         this.event(sessionId, id, 'user.message', { text: prompt }),
         this.event(sessionId, id, 'turn.started', { model, title }),
@@ -125,8 +128,8 @@ export class Store {
       if (this.db.prepare("SELECT 1 FROM turns WHERE session_id = ? AND status = 'running'").get(sessionId)) {
         throw new BloomError('TURN_ACTIVE', 'This session already has an active turn.', 409);
       }
-      const id = randomUUID();
-      this.db.prepare("INSERT INTO turns VALUES (?, ?, ?, 'running', ?, NULL)").run(id, sessionId, process.pid, now());
+      const id = this.newId();
+      this.db.prepare("INSERT INTO turns VALUES (?, ?, ?, 'running', ?, NULL)").run(id, sessionId, process.pid, this.now());
       const { model, title } = this.getSession(sessionId);
       return { id, events: [this.event(sessionId, id, 'turn.started', { model, title })] };
     });
@@ -134,13 +137,13 @@ export class Store {
 
   bindSession(sessionId, nativeId, model) {
     this.db.prepare('UPDATE sessions SET native_id = ?, model = ?, updated_at = ? WHERE id = ?')
-      .run(nativeId, model, now(), sessionId);
+      .run(nativeId, model, this.now(), sessionId);
   }
 
   finishTurn(sessionId, turnId, status, details = {}) {
     return this.transaction(() => {
       const result = this.db.prepare("UPDATE turns SET status = ?, finished_at = ? WHERE id = ? AND session_id = ? AND status = 'running'")
-        .run(status, now(), turnId, sessionId);
+        .run(status, this.now(), turnId, sessionId);
       if (!result.changes) return null;
       return this.event(sessionId, turnId, 'turn.finished', { status, ...details });
     });

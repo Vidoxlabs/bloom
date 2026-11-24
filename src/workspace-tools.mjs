@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, realpathSync } from 'node:fs';
-import { lstat, mkdtemp, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { constants, createReadStream, realpathSync } from 'node:fs';
+import { access, lstat, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { basename, delimiter, dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import { workspaceToolPack } from '@vidoxlabs/drosera';
@@ -12,7 +12,21 @@ import { workspacePath } from './harness.mjs';
 
 const writes = new Map();
 const temporaryPrefix = '.bloom-write-';
-const testCommandMode = ['uncontained', 'test', 'only'].join('-');
+
+// The one way to turn on workspace commands. Only the coding loop passes it; a guard test holds that.
+export const workspaceCommandAccess = Symbol('bloom.workspace-command-access');
+
+// The commands the owner approved, by exact name. Each one runs as a resolved executable, never
+// through a shell, with interpreter evaluation and directory redirection refused.
+export const ALLOWED_COMMANDS = Object.freeze(['node', 'npm', 'git']);
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'cmd', 'powershell', 'pwsh']);
+const GIT_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'add', 'commit']);
+const REFUSED_FLAGS = {
+  node: new Set(['-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type', '--loader', '--experimental-loader']),
+  npm: new Set(['--prefix', '-C', '-g', '--global', '--location', '--script-shell', '--node-options']),
+  git: new Set(['-C', '--git-dir', '--work-tree', '-c', '--exec-path']),
+};
+const REFUSED_NPM_COMMANDS = new Set(['exec', 'x', 'explore', 'edit']);
 
 function invalidArgument(message) {
   return new BloomError('WORKSPACE_ARGUMENT_INVALID', message, 400);
@@ -196,6 +210,94 @@ async function searchText(root, target, query, capture) {
   }
 }
 
+function refuseCommand(message) {
+  return new BloomError('WORKSPACE_COMMAND_REFUSED', message, 403);
+}
+
+// A path-like value: absolute, home-relative, parent-relative, drive or UNC rooted, or a file URL.
+function escapesWorkspace(value) {
+  return value.includes('\0') || isAbsolute(value) || Boolean(win32.parse(value).root) || /^[a-z]:/i.test(value) ||
+    value.startsWith('~') || /^file:/i.test(value) || value.split(/[\\/]/).includes('..');
+}
+
+function flagParts(argument) {
+  if (!argument.startsWith('-')) return { flag: null, value: argument };
+  const split = argument.indexOf('=');
+  return split === -1 ? { flag: argument, value: null } : { flag: argument.slice(0, split), value: argument.slice(split + 1) };
+}
+
+function refusedFlag(command, flag) {
+  if (!flag) return false;
+  if (REFUSED_FLAGS[command].has(flag)) return true;
+  // Node accepts clustered short options such as -pe, so any cluster with e, p or r is refused.
+  return command === 'node' && /^-[a-z]{2,}$/i.test(flag) && /[epr]/.test(flag.slice(1));
+}
+
+async function containedArgument(root, value) {
+  if (escapesWorkspace(value)) throw refuseCommand('Command arguments must stay inside the workspace.');
+  if (!value) return;
+  let resolved;
+  try {
+    resolved = await realpath(resolve(root, value));
+  } catch {
+    return;
+  }
+  if (isOutside(root, resolved)) throw refuseCommand('Command arguments must stay inside the workspace.');
+}
+
+async function checkCommandRequest(root, args) {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) throw invalidArgument('Provide tool arguments as an object.');
+  const command = textArgument(args.command, 'command', true);
+  const argv = args.args === undefined ? [] : args.args;
+  if (!Array.isArray(argv) || !Array.from(argv).every(item => typeof item === 'string')) {
+    throw invalidArgument('Provide command arguments as an array of strings.');
+  }
+  if (/[\\/]/.test(command) || command.includes('..') || /^[a-z]:/i.test(command) || isAbsolute(command)) {
+    throw refuseCommand('Name an allowed command without a path.');
+  }
+  if (SHELLS.has(command.toLowerCase())) throw refuseCommand('Shells are not allowed commands.');
+  if (!ALLOWED_COMMANDS.includes(command)) throw refuseCommand('Only node, npm and git are allowed commands.');
+  for (const argument of argv) {
+    const { flag, value } = flagParts(argument);
+    if (refusedFlag(command, flag)) throw refuseCommand('That option evaluates code or redirects the command.');
+    if (value !== null) await containedArgument(root, value);
+  }
+  if (command === 'npm' && REFUSED_NPM_COMMANDS.has(argv.find(item => !item.startsWith('-')))) {
+    throw refuseCommand('npm exec, x, explore and edit are not allowed.');
+  }
+  if (command === 'git' && !GIT_SUBCOMMANDS.has(argv[0])) {
+    throw refuseCommand('git is limited to status, diff, log, add and commit.');
+  }
+  return { command, args: [...argv] };
+}
+
+// Resolve an allowed name against the search path fixed when the tools were created. Relative
+// entries and entries inside the workspace are skipped, so a planted file never runs instead.
+async function resolveCommand(root, searchPath, command) {
+  const names = process.platform === 'win32' ? [command + '.exe', command + '.cmd', command + '.bat'] : [command];
+  for (const entry of String(searchPath ?? '').split(delimiter)) {
+    if (!entry || !isAbsolute(entry)) continue;
+    let directory;
+    try { directory = await realpath(entry); }
+    catch { continue; }
+    if (!isOutside(root, directory)) continue;
+    for (const name of names) {
+      const candidate = join(directory, name);
+      try {
+        if (!(await stat(candidate)).isFile()) continue;
+        await access(candidate, constants.X_OK);
+      } catch {
+        continue;
+      }
+      if (process.platform === 'win32' && extname(name).toLowerCase() !== '.exe') {
+        throw refuseCommand('That command needs a shell on this platform, so Bloom does not run it.');
+      }
+      return candidate;
+    }
+  }
+  throw refuseCommand('The allowed command was not found on the fixed search path.');
+}
+
 async function commandHome(workspace) {
   const userHome = await realpath(homedir()).catch(() => null);
   if (userHome === null) throw commandFailed();
@@ -222,6 +324,11 @@ function commandEnvironment(environment, home) {
   for (const name of ['PATH', 'LANG', 'TERM']) {
     if (typeof environment[name] === 'string') env[name] = environment[name];
   }
+  // npm stays offline and quiet; git reads no system configuration and never prompts or pages.
+  Object.assign(env, {
+    npm_config_offline: 'true', npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false',
+    GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', PAGER: 'cat',
+  });
   return env;
 }
 
@@ -284,8 +391,9 @@ function runCommand(root, command, args, env, timeoutMs, capture, signal) {
 
 export function createWorkspaceTools(workspace, {
   outputLimitBytes = 32_768, timeoutMs = 15_000, environment = process.env, commands = 'disabled',
+  searchPath = environment.PATH,
 } = {}) {
-  if (commands !== 'disabled' && commands !== testCommandMode) {
+  if (commands !== 'disabled' && commands !== workspaceCommandAccess) {
     throw invalidArgument('Choose a valid command mode.');
   }
   const validated = workspacePath(workspace);
@@ -311,21 +419,24 @@ export function createWorkspaceTools(workspace, {
     try {
       if (await realpath(root) !== root) throw new BloomError('WORKSPACE_CHANGED', 'The workspace directory changed.', 409);
       if (id === 'workspace.shell.execute') {
-        if (commands !== testCommandMode) {
-          throw new BloomError('WORKSPACE_COMMAND_DISABLED',
-            'Workspace commands stay disabled until command allowlisting and argument containment land.', 403);
+        if (commands !== workspaceCommandAccess) {
+          throw new BloomError('WORKSPACE_COMMAND_DISABLED', 'Workspace commands are disabled outside the coding loop.', 403);
         }
-        const command = textArgument(args.command, 'command');
-        const argv = args.args === undefined ? [] : args.args;
-        if (!Array.isArray(argv) || !Array.from(argv).every(item => typeof item === 'string')) {
-          throw invalidArgument('Provide command arguments as an array of strings.');
-        }
+        const request = await checkCommandRequest(root, args);
+        const executable = await resolveCommand(root, searchPath, request.command);
         const home = await commandHome(root);
+        let result;
         try {
-          return await runCommand(root, command, argv, commandEnvironment(environment, home), timeoutMs, capture, signal);
+          result = await runCommand(root, executable, request.args, commandEnvironment(environment, home), timeoutMs, capture, signal);
         } finally {
-          await rm(home, { recursive: true, force: true, maxRetries: 3 });
+          try {
+            await rm(home, { recursive: true, force: true, maxRetries: 3 });
+          } catch {
+            // Keep the command result and say the temporary home was left behind.
+            if (result) result.homeCleanupFailed = true;
+          }
         }
+        return result;
       }
       if (id === 'run.answer.create') {
         capture.append(textArgument(args.text, 'text', true));
@@ -374,5 +485,15 @@ export function createWorkspaceTools(workspace, {
     }
   }
 
-  return Object.freeze({ pack: workspaceToolPack, execute });
+  // Run the command gate without running anything, so a refusal comes before an approval prompt.
+  async function checkCommand(args) {
+    if (commands !== workspaceCommandAccess) {
+      throw new BloomError('WORKSPACE_COMMAND_DISABLED', 'Workspace commands are disabled outside the coding loop.', 403);
+    }
+    const request = await checkCommandRequest(root, args);
+    await resolveCommand(root, searchPath, request.command);
+    return request;
+  }
+
+  return Object.freeze({ pack: workspaceToolPack, execute, checkCommand });
 }

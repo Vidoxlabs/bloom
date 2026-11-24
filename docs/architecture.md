@@ -56,15 +56,99 @@ user's home. Bloom removes it after the run. The command deadline
 stops output capture and terminates the launched process. On POSIX it targets
 the process group. Commands run under the local OS account and the coding
 adapter owns the approval and dispatch flow.
-Command arguments are not path-contained in this release. The executor refuses
-`workspace.shell.execute` unless a test opts in, and no Bloom entry point opts
-in. CAP-04.3 adds a command allowlist and argument containment before any live run.
+Commands are off by default. The executor runs `workspace.shell.execute` only
+when it is created with the module-private `workspaceCommandAccess` symbol, and
+no shipped entry point can turn that on except the coding loop in
+`src/coding-loop.mjs`, which is the one production caller a guard test allows.
+There is no test-only command mode: tests use the same allowlisted gate.
 
 The executor returns `output`, `truncatedBytes`, and `outputSha256`. It keeps a
 UTF-8 prefix ending at a complete code point and hashes the full decoded text
 before truncation. For commands, stdout and stderr contribute in observed
 order, and a timeout reports the text captured up to the deadline alongside
 `timedOut` and a null `exitCode`.
+
+## Coding loop
+
+**Implemented.** `src/coding-loop.mjs` is a coding runtime on the harness seam
+`run(input, hooks)`. `bloom chat --workspace PATH` and `bloom run --headless
+--workspace PATH` use it when no `--team` is named, and the browser workspace
+lists it as a runtime when an endpoint is configured. Every model call runs
+behind `src/provider.mjs`, so seed's `normalizeGeneration` checks each record.
+
+Each model reply holds a short note and exactly one fenced json block,
+`{ "tool": "<tool id>", "args": { } }`. Parsing is strict. Bloom checks the tool
+against the admitted tools and the arguments against the face `inputSchema`
+with seed's `validateValue`, and checks a result against an `outputSchema` when
+the face declares one. Argument and output checks share one repair turn; a
+call that runs resets it. A second failure stops the turn as `malformed`, and
+nothing malformed runs. A reply the model did not finish (`complete: false`)
+counts as malformed. `run.answer.create` ends the turn with `turn.finished`.
+
+Read tools run without a prompt. `workspace.file.write`, `workspace.file.update`
+and `workspace.shell.execute` raise `permission.requested` first, showing the
+full content, the edit, or the command with every argument verbatim. A
+rejection never executes, and the model is told "denied by owner". "Allow this
+exact call for the session" binds the tool ID plus a SHA-256 digest of the
+arguments, and is never offered for `workspace.shell.execute`. A headless run
+refuses every write and command without asking.
+
+The client streams when it passes a delta callback: `stream: true`, with the
+server-sent events read into `assistant.delta` as they arrive. A reply is
+complete only on `finish_reason: "stop"`, usage is `null` when the server does
+not report it, never `0`, and an abort rejects so no completed record exists.
+Streamed text passes the endpoint redactor with a held-back tail, so an address
+split across chunks is still masked.
+
+The trace has one `model.call` row per generation (duration and usage, or
+"usage unreported") and one `tool.updated` row per tool call: time, tool ID, a
+short argument summary (paths, queries and the command, never file contents),
+the result status, bytes or the exit code, and the duration in milliseconds.
+Command rows carry the tail of the command output.
+
+### Command gate
+
+Before a command runs outside tests, all of these hold:
+
+1. Only `node`, `npm` and `git` run, by exact name, resolved against the search
+   path fixed when the tools are created. Relative entries and entries inside the
+   workspace are skipped. A command containing `/`, `\`, `..`, a drive letter
+   or an absolute path is refused, and so are `sh`, `bash`, `cmd` and `powershell`.
+   On Windows a name that resolves to a `.cmd` or `.bat` file is refused, because
+   it needs a shell.
+2. Arguments that are absolute, start with `~`, contain a `..` segment, have a
+   drive or UNC root, or start with `file:` are refused, and the same check
+   applies to the value in `--flag=value`. An argument that names an existing
+   path is resolved through links, and a target outside the workspace is refused.
+3. Evaluation and redirection are refused: for `node`, `-e`, `--eval`, `-p`,
+   `--print`, `-r`, `--require`, `--import`, `--input-type`, `--loader`,
+   `--experimental-loader` and any short option cluster holding `e`, `p` or `r`;
+   for `npm`, `exec`, `x`, `explore`, `edit`, `--prefix`, `-C`, `-g`, `--global`,
+   `--location`, `--script-shell` and `--node-options`; for `git`, `-C`,
+   `--git-dir`, `--work-tree`, `-c` and `--exec-path`, with the subcommand limited
+   to `status`, `diff`, `log`, `add` and `commit`.
+4. The command environment is `PATH`, `LANG` and `TERM` from Bloom's own
+   environment; a fresh temporary `HOME`, and `USERPROFILE` on Windows, outside
+   the workspace and the user's home; `npm_config_offline=true` with npm's
+   update notifier, fund and audit messages off; and `GIT_CONFIG_NOSYSTEM=1`,
+   `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` and `PAGER=cat`. If removing the
+   temporary home fails, the command result is kept and its trace row says
+   "home cleanup failed".
+5. Every command asks for approval and shows the command and every argument.
+   There is no session-wide allow for commands.
+
+### Residual risk
+
+Approval of each call is the boundary. `npm test` runs whatever the
+`package.json` scripts say, and the model may have written those scripts in an
+approved write. Commands can reach the network: npm is set offline and git is
+limited to local subcommands, but Bloom does not block network access from the
+process. The isolated `HOME` only changes the environment variable, so a
+command can still find your real home folder through the operating system's
+account lookup, and ssh-based git uses that account entry too. A detached
+grandchild process can outlive the call, because Bloom stops only the process
+group it launched. Git also reads the repository's own configuration, which can
+name programs; a write under `.git/` asks first like any other write.
 
 ## Local note writes
 
@@ -84,9 +168,10 @@ Omit `--check` to update the used properties. A fresh Bloom checkout runs from t
 
 ## Verification
 
-The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam and the coding-session harness against a scripted runtime. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
+The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam, the coding-session harness against a scripted runtime, the command gate, and the coding loop against a scripted provider and a synthetic project with zero network calls. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
 
 ## Changes
 
+- 2026-11-24: Add the coding loop with strict actions, one shared repair turn, per-call approvals, streamed text, a trace row per call, and the allowlisted command gate (CAP-04, bloom#5).
 - 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
 - 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).

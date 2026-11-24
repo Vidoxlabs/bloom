@@ -43,15 +43,17 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 | `workspace.text.search` | `read` | `false` | `false` | Search text patterns across files inside the workspace root |
 | `workspace.file.write` | `write` | `false` | `false` | Create or overwrite a file inside the workspace root |
 | `workspace.file.update` | `write` | `false` | `false` | Apply targeted edits to an existing file inside the workspace root |
-| `workspace.shell.execute` | `write` | `false` | `false` | Run a bounded command with the workspace as the working directory. Stays disabled until CAP-04.3. |
+| `workspace.shell.execute` | `write` | `false` | `false` | Run an allowlisted command with the workspace as the working directory, after per-call approval |
 | `run.answer.create` | `read` | `false` | `false` | Emit the structured final response that ends the coding loop |
 
 ### Events
 
 | Event | Producer | Payload fields | Notes |
 | --- | --- | --- | --- |
-| `tool.updated` | `bloom` (`src/harness.mjs`) | `id`, `toolId`, `kind`, `title`, `status`, `truncatedBytes`, `outputSha256` | Existing harness tool lifecycle event extended with capped digest metadata |
-| `assistant.delta` | `bloom` (`src/harness.mjs`) | `text` | Final or streamed coding-loop answer text emitted via `run.answer.create` |
+| `tool.updated` | `bloom` (`src/coding-loop.mjs`) | `id`, `toolId`, `effect`, `summary`, `status`, `durationMs`, `approval`, `bytes`, `truncatedBytes`, `outputSha256`, and for commands `exitCode`, `timedOut`, `output`, `homeCleanupFailed` | One trace row per call; the summary names paths and commands, never file contents |
+| `model.call` | `bloom` (`src/coding-loop.mjs`) | `call`, `durationMs`, `model`, `complete`, `usage` | One trace row per generation; `usage` is `null` when unreported |
+| `permission.requested` | `bloom` (`src/coding-loop.mjs`) | `id`, `toolId`, `effect`, `summary`, `detail`, `options`, and for commands `command`, `args` | Raised before every write and command |
+| `assistant.delta` | `bloom` (`src/coding-loop.mjs`) | `text`, `final` | Streamed reply text; `final: true` marks the answer from `run.answer.create` |
 | `turn.finished` | `bloom` (`src/harness.mjs`) | `status`, `reason` | Emitted when the coding loop terminates via finish action, cancel, or error |
 
 ## Acceptance tests
@@ -61,18 +63,23 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `capped-output-reports-truncated-bytes-and-sha256`: oversized tool output truncates to budget and includes exact `truncatedBytes` plus SHA-256 of the untruncated output.
 - `coding-loop-finishes-via-run-answer-create`: coding loop dispatches provider generations behind `src/provider.mjs`, runs admitted tools, and stops cleanly on `run.answer.create`.
 - `unadmitted-tool-rejected-before-execution`: any tool outside the objective's `allowedTools` list is refused before execution.
+- `coding-loop-fixes-fixture-offline`: the loop fixes the synthetic project's failing test through approved calls with zero network calls.
+- `reject-is-never-executed`, `allow-session-binds-args-digest`, `headless-never-writes`, `trace-row-per-call-without-file-contents`, `endpoint-marker-never-in-events-or-export`.
+- `shell-refuses-unlisted-command`, `shell-refuses-absolute-and-parent-args`, `shell-refuses-symlinked-outside-arg`, `shell-refuses-eval-flags`, `shell-home-is-isolated`, `shell-home-cleanup-failure-flagged`, `command-access-has-one-production-caller`.
+- `stream-usage-null-when-unreported`, `abort-returns-no-completed-record`.
 
 ## Slices
 
 - `CAP-04.1` (`drosera`, milestone `M2`, status `landed`): Workspace and finish tool faces pack and recipe.
 - `CAP-04.2` (`bloom`, milestone `M2`, status `landed`): Workspace root path containment, write serialization, capped digest output.
-- `CAP-04.3` (`bloom`, milestone `M2`, status `proposed`): Coding loop integration with workspace tools and finish action.
+- `CAP-04.3` (`bloom`, milestone `M2`, status `landed`): Coding loop integration with workspace tools and finish action. Before `workspace.shell.execute` runs outside tests, all of these hold: the exact command allowlist `node`, `npm` and `git`, resolved against a fixed search path; refusal of interpreter eval and redirect flags (`node -e`, `--eval`, `-p`, `--print`, `-r`, `--require`, `--import`, `--input-type`; `npm exec`, `npm x`, `npm --prefix`; `git -C`, `--git-dir`, `--work-tree`, `-c`, `--exec-path`; and `sh`, `bash`, `cmd` and `powershell` as commands); refusal of arguments that are absolute, contain `..`, or resolve outside the workspace, including through links and in `--flag=value`; an isolated per-run `HOME` (and `USERPROFILE` on Windows); per-call approval with no session-wide allow for commands; the owner's network answer, verbatim: "Assume recommended and continue" (recommendation A: commands are not network-blocked, npm runs offline, git is limited to `status`, `diff`, `log`, `add` and `commit`, and the residual-risk text says commands can reach the network); and tests for each in `test/shell-gate.test.mjs` and `test/coding-loop.test.mjs`.
 
 ## Non-goals
 
 - Importing `drosera` inside `bloom` at runtime before an explicit package adoption task.
 - Virtual path remapping or default-off shell scope isolation across custom roots (`CAP-17`).
-- Interactive tool-call approval prompt UX (`CAP-06`) or trace HTML export (`CAP-10`).
+- The approval modal and resume (`CAP-06.4`) or trace HTML export (`CAP-10`).
+- An operating-system sandbox or network block for commands.
 
 ## Family rules and conflicts
 
@@ -84,14 +91,20 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 - `D12` Decided 2026-11-24 in drosera#4: Approve the workspace update, shell, and finish tool IDs? Owner's answer, verbatim: "Continue with work and assume D12 is approved".
 - `D15` Decided 2026-11-24 in bloom#4: Adopt pinned family peers as their slices need them? Owner's answer, verbatim: "Assume D15 approval and continue working on CAP-04.2".
+- `D16` Decided 2026-11-24 in bloom#5: Action format: each model reply holds exactly one fenced json block `{ "tool": "<tool id>", "args": { } }`, parsed strictly with one repair turn, then malformed, and nothing malformed runs? Owner's answer, verbatim: "Assume recommended and continue".
+- `D17` Decided 2026-11-24 in bloom#5: Command allowlist: exactly `node`, `npm` and `git`? Owner's answer, verbatim: "Assume recommended and continue".
+- `D18` Decided 2026-11-24 in bloom#5: Approvals: write tools always ask, "Allow for session" binds the tool ID plus an arguments digest, and is never offered for `workspace.shell.execute`? Owner's answer, verbatim: "Assume recommended and continue".
+- `D19` Decided 2026-11-24 in bloom#5: Should shell commands be able to reach the network in the first live run? Owner's answer, verbatim: "Assume recommended and continue". This approves A: not blocked, npm offline, git limited to local subcommands, and the residual risk says so.
 
 ## Evidence
 
 - `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
+- `CAP-04.3`: `test/coding-loop.test.mjs` runs the loop over a synthetic project with a scripted provider and zero network calls, writes the byte-stable session `test/fixtures/demo-session.jsonl` through the export path, and covers the repair budget, admission, approvals, headless refusal, trace rows and endpoint masking. `test/shell-gate.test.mjs` covers the command gate, `test/model-stream.test.mjs` the streamed client, and `test/cli-coding.test.mjs` the headless terminal path.
 - `CAP-04.2`: `test/workspace-tools.test.mjs` exercises file path containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, the disabled-by-default command gate, command environment, and timeout.
 
 ## Changes
 
+- `2026-11-24`: Add the coding loop, the streamed model client, and the allowlisted command gate, and record the L2 owner decisions (CAP-04, bloom#5).
 - `2026-11-24`: Record the D12 tool face and D15 dependency decisions and add workspace executors (CAP-04, bloom#4).
 - `2026-11-24`: Align root canonicalization with the native resolver used for tool paths (CAP-04, bloom#4).
 - `2026-11-24`: Disable commands by default and isolate command home directories in test mode (CAP-04, bloom#4).

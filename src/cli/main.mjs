@@ -28,7 +28,7 @@ const commands = {
   memory: { team: string, text: string, confirm: flag },
 };
 const help = {
-  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo]',
+  chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo]  (--workspace without --team runs the coding loop)',
   run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo]',
   doctor: 'bloom doctor [--json]',
   sessions: 'bloom sessions list [--json] | show ID [--json] | export ID --jsonl [--out FILE]',
@@ -153,8 +153,12 @@ async function runCommand(action, args, values) {
     return completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(), values.json);
   }
   const workspace = values.workspace ? workspacePath(resolve(values.workspace)) : '';
-  openHarness({ ...provider, demo: values.demo, model, terminal: true }, workspace);
-  const session = values.demo ? harness.createSession({ model }) : teamSession(values.team, workspace, model, limits);
+  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless }, workspace);
+  // A workspace without a team name opens the coding loop in that folder.
+  const coding = !values.demo && workspace && !values.team;
+  const session = values.demo ? harness.createSession({ model })
+    : coding ? harness.createSession({ workspace, adapter: 'coding', model })
+      : teamSession(values.team, workspace, model, limits);
   const turn = async text => {
     const { result, message } = await runTurn(harness, session, { text, model },
       renderer, controls, values['output-last-message']);

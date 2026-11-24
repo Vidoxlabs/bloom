@@ -43,8 +43,8 @@ export function showSession(store, session, stdout, json) {
   }
 }
 
-export function exportSession(store, session, stdout, file) {
-  const header = { v: 1, type: 'session.header', bloomVersion, seedPin, sessionId: session.id, exportedAt: new Date().toISOString() };
+export function exportSession(store, session, stdout, file, { exportedAt = new Date().toISOString() } = {}) {
+  const header = { v: 1, type: 'session.header', bloomVersion, seedPin, sessionId: session.id, exportedAt };
   const text = jsonLine(header) + Array.from(sessionEvents(store, session), jsonLine).join('');
   if (file) writeFileSync(file, text, { mode: 0o600 });
   else stdout.write(text);
