@@ -124,7 +124,8 @@ test('web-workspace-refuses-cloud-and-has-no-endpoint-option', t => {
   assert.ok(!refused.stderr.includes(marker));
   const help = spawnSync(process.execPath, [main, '--help'], { encoding: 'utf8' });
   assert.equal(help.status, 0);
-  assert.doesNotMatch(help.stdout, /api-base|BLOOM_API_KEY/);
+  // No endpoint option and no key variable name in the help.
+  assert.doesNotMatch(help.stdout, /api-base|[A-Z]+_KEY\b/);
   assert.match(help.stdout, /config\.json/);
 });
 
@@ -176,7 +177,7 @@ test('live-test-runbook-keeps-endpoint-private', () => {
   for (const line of commands) {
     assert.doesNotMatch(line, /api-base|https?:|<your-endpoint>|[A-Z_]+=/, line);
   }
-  assert.doesNotMatch(runbook, /export [A-Z_]+=|BLOOM_API_KEY/);
+  assert.doesNotMatch(runbook, /export [A-Z_]+=|[A-Z]+_KEY\b/);
   for (const section of ['Offline rehearsal', 'Config', 'Probe', 'Live run', 'Web view', 'Troubleshooting', 'Residual risk']) {
     assert.match(runbook, new RegExp('^## ' + section, 'm'), section);
   }
