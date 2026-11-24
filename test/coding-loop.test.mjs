@@ -7,6 +7,7 @@ import { test } from 'node:test';
 
 import { exportSession } from '../src/cli/session-io.mjs';
 import { lineRenderer } from '../src/cli/render/line.mjs';
+import { createCodingRuntime } from '../src/coding-loop.mjs';
 import { endpointRedactor } from '../src/endpoint-privacy.mjs';
 import { createChatProvider } from '../src/models.mjs';
 import { copyDemoRepo, openCodingSession } from './fixtures/coding-session.mjs';
@@ -309,4 +310,29 @@ test('endpoint-marker-never-in-events-or-export', async t => {
   assert.equal(ending.status, 'finished');
   const everything = JSON.stringify(events) + exportText(opened.store, opened.session);
   assert.ok(!everything.toLowerCase().includes(marker), 'the endpoint marker reached an event or the export');
+});
+
+test('approval-runs-only-on-allow-choices', async t => {
+  await withoutNetwork(t);
+  const { directory, dataDirectory, workspace } = folders();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(join(workspace, 'NOTES.md'), 'before\n');
+  const provider = scriptedProvider([
+    action('workspace.file.write', { path: 'NOTES.md', content: 'after\n' }),
+    action('run.answer.create', { text: 'Done.' }),
+  ]);
+  const runtime = createCodingRuntime({ provider, searchPath: join(process.execPath, '..') });
+  const toolRows = [];
+  const ending = await runtime.run(
+    { workspace, model: 'scripted/coding', prompt: 'Write.', signal: AbortSignal.timeout(15_000) },
+    {
+      bind() {},
+      emit(type, data) { if (type === 'tool.updated') toolRows.push(data); },
+      permission: async () => 'always',
+    },
+  );
+  assert.equal(ending.stopReason, 'end_turn');
+  assert.equal(readFileSync(join(workspace, 'NOTES.md'), 'utf8'), 'before\n');
+  assert.equal(toolRows[0]?.status, 'denied');
+  assert.ok(!existsSync(join(dataDirectory, 'unused')));
 });
