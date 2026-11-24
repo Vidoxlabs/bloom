@@ -27,6 +27,7 @@ const commands = {
   doctor: { json: flag, probe: flag, 'allow-cloud': flag },
   sessions: { json: flag, jsonl: flag, out: string },
   replay: { json: flag, step: flag },
+  eval: { smoke: flag },
   memory: { team: string, text: string, confirm: flag },
 };
 const help = {
@@ -35,6 +36,7 @@ const help = {
   doctor: 'bloom doctor [--json] [--probe] [--allow-cloud]  (--probe asks the configured provider what it supports and saves its profile)',
   sessions: 'bloom sessions list [--json] | show ID [--json] | export ID --jsonl [--out FILE]',
   replay: 'bloom replay FILE [--json] [--step]',
+  eval: 'bloom eval --smoke',
   memory: 'bloom memory list --team NAME | keep ID | correct ID --text TEXT | forget ID --confirm',
 };
 const { stdin, stdout, stderr } = process;
@@ -261,6 +263,13 @@ async function main(argv) {
   if (values.help || !action) {
     stdout.write((action ? help[action] : Object.values(help).join('\n')) + '\nOptions: --data-dir PATH, --help, --version\n');
     return 0;
+  }
+  if (action === 'eval') {
+    need(values.smoke && positionals.length === 0, help.eval);
+    const { runSmoke } = await import('../eval/smoke.mjs');
+    const report = await runSmoke();
+    output(report);
+    return report.failedCount ? 1 : 0;
   }
   directory = dataPath(values['data-dir'], values.demo);
   switch (action) {
