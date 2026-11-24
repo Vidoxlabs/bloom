@@ -49,7 +49,13 @@ function readBounded(path, original, maxBytes) {
   const handle = openSync(path, constants.O_RDONLY | posixFlags);
   try {
     const stat = fstatSync(handle);
-    if (!stat.isFile() || stat.ino !== original.ino || stat.dev !== original.dev) throw new Error('Workspace entry changed.');
+    // Windows reports an inode per handle that need not match the one `lstat` recorded
+    // for the same file, so the swap check there compares what it does report: the size
+    // and modification time the listing saw against the ones the handle carries.
+    const unchanged = process.platform === 'win32'
+      ? stat.size === original.size && stat.mtimeMs === original.mtimeMs
+      : stat.ino === original.ino && stat.dev === original.dev;
+    if (!stat.isFile() || !unchanged) throw new Error('Workspace entry changed.');
     if (stat.size > maxBytes) return null;
     const bytes = Buffer.alloc(stat.size + 1);
     let offset = 0;
