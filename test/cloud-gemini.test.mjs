@@ -322,15 +322,23 @@ test('doctor-probe-refuses-cloud-without-allow-cloud', t => {
     providers: { aistudio: { kind: 'chat-completions', baseURL: fakeBase, locality: 'cloud', apiKeyEnv: 'GEMINI_API_KEY' } },
     models: { aliases: [{ alias: 'coder', backendModel: 'gemini-4-hydrogen', workload: 'code' }], default: 'coder' },
   }), { mode: 0o600 });
-  let fetches = 0;
+  const countFile = join(dir.path, 'fetch-count.txt');
+  writeFileSync(countFile, '0');
   const preload = 'data:text/javascript,' + encodeURIComponent(`
-    globalThis.fetch = async () => { globalThis.__fetches = (globalThis.__fetches || 0) + 1; throw new Error('no'); };
+    import { readFileSync, writeFileSync } from 'node:fs';
+    const countFile = ${JSON.stringify(countFile)};
+    globalThis.fetch = async () => {
+      const next = String(Number(readFileSync(countFile, 'utf8') || '0') + 1);
+      writeFileSync(countFile, next);
+      throw new Error('no');
+    };
   `);
   const run = spawnSync(process.execPath, ['--import', preload, bin, 'doctor', '--probe', '--data-dir', data, '--json'], {
     encoding: 'utf8', env: { ...process.env, GEMINI_API_KEY: keyMarker }, timeout: 15_000,
   });
   assert.notEqual(run.status, 0);
   assert.match(run.stdout + run.stderr, /allow-cloud|cloud/i);
+  assert.equal(readFileSync(countFile, 'utf8'), '0');
   assert.ok(!(run.stdout + run.stderr).includes(keyMarker));
 });
 
@@ -368,16 +376,27 @@ test('chat-error-body-is-not-echoed', t => {
   }), { mode: 0o600 });
   const sandbox = join(dir.path, 'sandbox');
   makeSandbox(sandbox);
+  const countFile = join(dir.path, 'fetch-count.txt');
+  writeFileSync(countFile, '0');
   const preload = 'data:text/javascript,' + encodeURIComponent(`
-    globalThis.fetch = async () => new Response(JSON.stringify({
-      error: { code: 500, message: 'server saw ${keyMarker}', status: 'INTERNAL' },
-    }), { status: 500, headers: { 'content-type': 'application/json' } });
+    import { readFileSync, writeFileSync } from 'node:fs';
+    const countFile = ${JSON.stringify(countFile)};
+    globalThis.fetch = async () => {
+      const next = String(Number(readFileSync(countFile, 'utf8') || '0') + 1);
+      writeFileSync(countFile, next);
+      return new Response(JSON.stringify({
+        error: { code: 500, message: 'server saw ${keyMarker}', status: 'INTERNAL' },
+      }), { status: 500, headers: { 'content-type': 'application/json' } });
+    };
   `);
+  // Answer 1 (Allow once) to the first-message cloud prompt so the request is actually sent.
   const run = spawnSync(process.execPath, ['--import', preload, bin, 'chat', '--workspace', sandbox,
     '--allow-cloud', '--data-dir', data], {
-    encoding: 'utf8', env: { ...process.env, GEMINI_API_KEY: keyMarker }, input: 'Hello.\n/exit\n', timeout: 15_000,
+    encoding: 'utf8', env: { ...process.env, GEMINI_API_KEY: keyMarker },
+    input: 'Hello.\n1\n/exit\n', timeout: 15_000,
   });
   const printed = run.stdout + run.stderr;
+  assert.notEqual(readFileSync(countFile, 'utf8'), '0', 'cloud request was never sent');
   assert.ok(!printed.includes(keyMarker), 'error body key marker leaked');
 });
 
@@ -391,7 +410,7 @@ test('tests-never-configure-a-real-cloud-host', () => {
 });
 
 test('live-suite-cloud-needs-second-flag', async t => {
-  // Nested `node --test` is skipped by the runner, so exercise the same gate the live suite uses.
+  const { requireCloudFlag } = await import('../src/live-cloud-flag.mjs');
   const { readTerminalProvider } = await import('../src/cli/config.mjs');
   const dir = folders(t);
   const data = join(dir.path, 'data');
@@ -414,10 +433,9 @@ test('live-suite-cloud-needs-second-flag', async t => {
   const provider = readTerminalProvider(data);
   assert.ok(provider);
   assert.equal(provider.local, false);
-  assert.throws(
-    () => assert.ok(provider.local || process.env.BLOOM_LIVE_ALLOW_CLOUD === '1',
-      'Cloud live probe needs BLOOM_LIVE_ALLOW_CLOUD=1 as well.'),
-    /BLOOM_LIVE_ALLOW_CLOUD/,
-  );
+  assert.throws(() => requireCloudFlag(provider), /BLOOM_LIVE_ALLOW_CLOUD/);
   assert.equal(fetches, 0);
+  const suite = readFileSync(new URL('./live/live-suite.live.mjs', import.meta.url), 'utf8');
+  assert.match(suite, /live-cloud-flag\.mjs/);
+  assert.match(suite, /requireCloudFlag\s*\(/);
 });

@@ -11,6 +11,7 @@ import { makeSandbox, sandboxGit } from '../../scripts/make-sandbox.mjs';
 import { dataPath } from '../../src/data-dir.mjs';
 import { readTerminalProvider, terminalSelection } from '../../src/cli/config.mjs';
 import { selectProviders } from '../../src/cli/providers.mjs';
+import { requireCloudFlag } from '../../src/live-cloud-flag.mjs';
 import { probeProvider } from '../../src/probe.mjs';
 import { openCodingSession } from '../fixtures/coding-session.mjs';
 import { demoTask } from '../fixtures/demo-provider.mjs';
@@ -28,11 +29,6 @@ function capture() {
     log(row) { lines.push(row); process.stdout.write(JSON.stringify(row) + '\n'); },
     text: () => lines.map(line => JSON.stringify(line)).join('\n'),
   };
-}
-
-function requireCloudFlag(provider) {
-  assert.ok(provider.local || process.env.BLOOM_LIVE_ALLOW_CLOUD === '1',
-    'Cloud live probe needs BLOOM_LIVE_ALLOW_CLOUD=1 as well.');
 }
 
 function leakCheck(blob, provider, credential) {

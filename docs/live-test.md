@@ -165,7 +165,7 @@ Offline `npm test` never loads these. Against your configured provider:
 cd bloom && BLOOM_LIVE=1 npm run test:live
 ```
 
-At most 20 model calls per run of the whole suite. The suite reads the provider only from bloom's data directory (or `BLOOM_LIVE_DATA_DIR`), never from an endpoint environment variable. When the configured provider is cloud, set `BLOOM_LIVE_ALLOW_CLOUD=1` as well; without that second flag the live suite skips before any request. Local providers need only `BLOOM_LIVE=1`.
+At most 20 model calls per run of the whole suite. The suite reads the provider only from bloom's data directory (or `BLOOM_LIVE_DATA_DIR`), never from an endpoint environment variable. When the configured provider is cloud, set `BLOOM_LIVE_ALLOW_CLOUD=1` as well; without that second flag the cloud live tests fail on an assert before any request. `live-loop-fixes-sandbox` is local-only and does not use the cloud flag. Local providers need only `BLOOM_LIVE=1`.
 
 ## Residual risk
 
