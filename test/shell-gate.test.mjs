@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
@@ -416,15 +417,13 @@ test('file-tools-refuse-writes-under-dot-git', async t => {
   );
 
   // Resolved-path check: an in-workspace symlink into .git must still refuse.
-  let linked = false;
   try {
-    await symlink('.git', join(root, 'gitlink'));
-    linked = true;
+    await symlink(join(root, '.git'), join(root, 'gitlink'), process.platform === 'win32' ? 'junction' : 'dir');
   } catch (error) {
-    t.skip(`symlink into .git unavailable: ${error.code ?? error.message}`);
+    if (!['EACCES', 'ENOSYS', 'ENOTSUP', 'EPERM'].includes(error.code)) throw error;
+    t.skip(`Directory links unavailable: ${error.code}`);
     return;
   }
-  assert.equal(linked, true);
   const before = await readFile(join(root, '.git', 'config'), 'utf8');
   for (const id of ['workspace.file.write', 'workspace.file.update']) {
     const args = id === 'workspace.file.write'
@@ -435,45 +434,52 @@ test('file-tools-refuse-writes-under-dot-git', async t => {
   assert.equal(await readFile(join(root, '.git', 'config'), 'utf8'), before);
 });
 
+test('file-tools-allow-ordinary-git-short-name-directories', async t => {
+  const { root, tools } = await fixture(t);
+  await mkdir(join(root, 'GIT~1'));
+  await mkdir(join(root, '.git'));
+  const path = 'GIT~1/notes.txt';
+  await tools.execute('workspace.file.write', { path, content: 'original\n' });
+  await tools.execute('workspace.file.update', { path, oldText: 'original', newText: 'updated' });
+  assert.equal(await readFile(join(root, path), 'utf8'), 'updated\n');
+});
+
 test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   const { root, tools } = await fixture(t);
   const marker = join(root, 'hook-ran.txt');
   const plant = "import { writeFileSync } from 'node:fs'; writeFileSync('hook-ran.txt', 'ran');\n";
-  await mkdir(join(root, '.git', 'hooks'), { recursive: true });
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: join(root, 'empty-git-config'), GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (...args) => {
+    const run = spawnSync('git', args, { cwd: root, encoding: 'utf8', env });
+    assert.equal(run.status, 0, run.error?.message ?? run.stderr);
+    return run.stdout;
+  };
+  git('init', '--quiet', '--template=');
+  await mkdir(join(root, '.git', 'hooks'));
   await writeFile(join(root, 'fsmonitor.mjs'), plant);
   await writeFile(join(root, 'diff-external.mjs'), plant);
-  // Hook scripts must be executable files; call node so the marker path is portable.
-  const hook = process.platform === 'win32'
-    ? `node fsmonitor.mjs\n`
-    : `#!/bin/sh\nexec node fsmonitor.mjs\n`;
-  await writeFile(join(root, '.git', 'hooks', 'pre-commit'), hook);
+  await writeFile(join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexec node fsmonitor.mjs\n');
   if (process.platform !== 'win32') await chmod(join(root, '.git', 'hooks', 'pre-commit'), 0o755);
-  const fsmonitorCmd = `${process.execPath} ${join(root, 'fsmonitor.mjs')}`;
-  const diffCmd = `${process.execPath} ${join(root, 'diff-external.mjs')}`;
-  await writeFile(join(root, '.git', 'config'), [
-    '[core]',
-    `	fsmonitor = ${fsmonitorCmd}`,
-    '	hooksPath = .git/hooks',
-    '[diff]',
-    `	external = ${diffCmd}`,
-    '[user]',
-    '	name = Bloom Test',
-    '	email = test@example.invalid',
-    '',
-  ].join('\n'));
-  // Minimal git repo files so status and commit can run.
-  await writeFile(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
-  await mkdir(join(root, '.git', 'refs', 'heads'), { recursive: true });
-  await mkdir(join(root, '.git', 'objects'), { recursive: true });
+  for (const [key, value] of [
+    ['core.fsmonitor', 'node fsmonitor.mjs'],
+    ['core.hooksPath', '.git/hooks'],
+    ['diff.external', 'node diff-external.mjs'],
+    ['user.name', 'Bloom Test'],
+    ['user.email', 'test@example.invalid'],
+  ]) {
+    git('config', '--local', key, value);
+    assert.equal(git('config', '--local', '--get', key).trimEnd(), value);
+  }
   await writeFile(join(root, 'tracked.txt'), 'one\n');
   const status = await tools.execute('workspace.shell.execute', { command: 'git', args: ['status'] });
-  assert.notEqual(status.exitCode, null);
+  assert.equal(status.exitCode, 0, status.output);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
-  await tools.execute('workspace.shell.execute', { command: 'git', args: ['add', 'tracked.txt'] });
+  const add = await tools.execute('workspace.shell.execute', { command: 'git', args: ['add', 'tracked.txt'] });
+  assert.equal(add.exitCode, 0, add.output);
   const commit = await tools.execute('workspace.shell.execute', {
     command: 'git', args: ['commit', '-m', 'Add tracked'],
   });
-  assert.equal(commit.exitCode, 0, `commit stderr: ${commit.stderr ?? ''}`);
+  assert.equal(commit.exitCode, 0, commit.output);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
 
   await writeFile(join(root, 'tracked.txt'), 'two\n');
