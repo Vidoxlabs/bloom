@@ -268,10 +268,11 @@ async function containedArgument(root, value) {
   }
 }
 
-function underDotGit(root, target) {
-  const relativePath = relative(root, target);
-  if (!relativePath || relativePath === '') return false;
-  return relativePath.split(/[\\/]/).some(part => part.toLowerCase() === '.git');
+// Plain path-segment check before any existence or realpath lookup, so .GIT and .Git
+// refuse with the same reason on every filesystem.
+function underDotGit(path) {
+  if (typeof path !== 'string' || !path) return false;
+  return path.split(/[\\/]/).some(part => part.toLowerCase() === '.git');
 }
 
 function refuseDotGit() {
@@ -497,12 +498,13 @@ export function createWorkspaceTools(workspace, {
       }
 
       const requested = args.path === undefined && (id === 'workspace.dir.list' || id === 'workspace.text.search') ? '.' : args.path;
+      if ((id === 'workspace.file.write' || id === 'workspace.file.update') && underDotGit(requested)) {
+        throw refuseDotGit();
+      }
       const target = await canonicalTarget(root, requestedPath(root, requested), id === 'workspace.file.write');
       if (id === 'workspace.file.write' || id === 'workspace.file.update') {
-        if (underDotGit(root, target)) throw refuseDotGit();
         const update = id === 'workspace.file.update';
         await serializeWrite(target, async () => {
-          if (underDotGit(root, target)) throw refuseDotGit();
           if (signal?.aborted) throw cancelled();
           if (await canonicalTarget(root, target, !update) !== target) throw outsideWorkspace();
           const info = await fileInfo(target, !update);
