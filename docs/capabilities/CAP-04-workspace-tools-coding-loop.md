@@ -7,8 +7,8 @@
 - Horizon: `now`
 - Milestone: `M2`
 - CLI phase: `P2`
-- Status: `proposed`
-- Claim: `planned`
+- Status: `in-progress`
+- Claim: `specified`
 - Depends on: `CAP-03`
 
 ## Why
@@ -20,9 +20,10 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - Defines seven neutral tools whose faces and recipe live in `drosera` (`CAP-04.1`) and whose execution runs inside `bloom` (`CAP-04.2`, `CAP-04.3`):
   - Read tools: `workspace.file.read`, `workspace.dir.list`, `workspace.text.search`, and `run.answer.create`.
   - Write tools: `workspace.file.write`, `workspace.file.update`, and `workspace.shell.execute`.
+- Read takes `path` and optional one-based inclusive `startLine` and `endLine`. List and literal search use an optional `path` rooted at the workspace. Search requires `query`. Write takes `path` and `content`. Update takes `path`, `oldText`, and `newText`. Command takes `command` and optional string array `args`. Finish takes `text`.
 - Enforces strict workspace root containment: every path parameter resolves relative to the session's canonical workspace root (`realpath` of `session.workspace` in `src/harness.mjs`), verifies symlink targets stay inside the root, and refuses any path outside the workspace root before I/O.
 - Serializes writes per canonical file path: concurrent `workspace.file.write` and `workspace.file.update` calls targeting the same file wait on a per-path queue so updates never interleave or drop edits.
-- Caps tool output deterministically: output exceeding the configured budget is truncated, and the tool record reports `truncatedBytes` along with the SHA-256 hex digest of the full untruncated output.
+- Caps tool output deterministically: retain a UTF-8 prefix with no partial code point, report `truncatedBytes`, and include the SHA-256 hex digest of the full decoded output.
 - Integrates the coding loop into Bloom's runtime: each model call passes through `src/provider.mjs` (`validateProvider` and `normalizeGeneration`), validates inputs and outputs per `CAP-03`, checks tool admission against `allowedTools`, executes workspace tools locally, and finishes explicitly when `run.answer.create` runs.
 
 ## Contract touchpoints
@@ -63,8 +64,8 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Slices
 
-- `CAP-04.1` (`drosera`, milestone `M2`, status `proposed`): Workspace and finish tool faces pack and recipe.
-- `CAP-04.2` (`bloom`, milestone `M2`, status `proposed`): Workspace root path containment, write serialization, capped digest output.
+- `CAP-04.1` (`drosera`, milestone `M2`, status `landed`): Workspace and finish tool faces pack and recipe.
+- `CAP-04.2` (`bloom`, milestone `M2`, status `landed`): Workspace root path containment, write serialization, capped digest output.
 - `CAP-04.3` (`bloom`, milestone `M2`, status `proposed`): Coding loop integration with workspace tools and finish action.
 
 ## Non-goals
@@ -81,13 +82,16 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Open owner decisions
 
-- `D12` (pending owner ruling): P2 tool-ID rulings on the workspace and finish tool IDs (`workspace.file.update`, `workspace.shell.execute`, and `run.answer.create`, alongside `workspace.file.read`, `workspace.dir.list`, `workspace.text.search`, and `workspace.file.write`), including whether `run.answer.create` remains a tool face or a harness finish action and default owner-gate flags for write and shell actions.
+- `D12` Decided 2026-11-24 in drosera#4: Approve the workspace update, shell, and finish tool IDs? Owner's answer, verbatim: "Continue with work and assume D12 is approved".
+- `D15` Decided 2026-11-24 in bloom#4: Adopt pinned family peers as their slices need them? Owner's answer, verbatim: "Assume D15 approval and continue working on CAP-04.2".
 
 ## Evidence
 
-- None yet (`claim: planned`).
+- `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
+- `CAP-04.2`: `test/workspace-tools.test.mjs` exercises containment, concurrent writes, exact matching, capped output and digests, command environment, and timeout.
 
 ## Changes
 
+- `2026-11-24`: Record the D12 tool face and D15 dependency decisions and add workspace executors (CAP-04, bloom#4).
 - `2026-11-23`: Added `M2` slice milestones across `CAP-04.1`..`CAP-04.3` and aligned `D12` wording.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.
