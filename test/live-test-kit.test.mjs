@@ -148,6 +148,26 @@ test('web-coding-view-formats-rows', () => {
     { title: 'Search sources', name: '', phase: 'in_progress', meta: '', output: '' });
 });
 
+test('web-approval-renders-full-detail-as-text', async () => {
+  const { approvalCard } = await import('../public/coding-view.js');
+  const dom = {
+    createElement(tagName) {
+      return {
+        tagName,
+        children: [],
+        append(...items) { this.children.push(...items); },
+        set innerHTML(_value) { assert.fail('approval input must be rendered as text'); },
+      };
+    },
+  };
+  const title = '<em>Review this command</em>';
+  const detail = 'node --test\n' + 'payload '.repeat(100) + '<strong>last line</strong>';
+  const card = approvalCard({ title, detail }, dom);
+  assert.equal(card.children[1].textContent, title);
+  assert.equal(card.children[2].tagName, 'pre');
+  assert.equal(card.children[2].textContent, detail);
+});
+
 const runbook = readFileSync(join(root, 'docs', 'live-test.md'), 'utf8');
 // Accept LF or CRLF so a Windows checkout still finds the bash blocks.
 const commands = [...runbook.matchAll(/```bash\r?\n([\s\S]*?)```/g)].flatMap(match => match[1].split(/\r?\n/))

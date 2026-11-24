@@ -1,4 +1,4 @@
-import { modelRow, toolRow } from './coding-view.js';
+import { approvalCard, modelRow, node, toolRow } from './coding-view.js';
 import { teamView } from './team.js';
 const $ = id => document.getElementById(id);
 const drafts = new Map();
@@ -15,13 +15,6 @@ const state = {
   submitting: false, starting: false, connected: false, tools: new Map(),
   approvals: new Map(), messages: new Map(), adapterLabels: new Map(),
 };
-
-function node(tag, text, className) {
-  const element = document.createElement(tag);
-  if (text != null) element.textContent = text;
-  if (className) element.className = className;
-  return element;
-}
 
 async function request(path, body, method = 'POST') {
   const response = await fetch(path, body === undefined ? {} : {
@@ -213,9 +206,7 @@ function renderModelCall(data) {
 }
 
 function renderApproval({ id, title, detail, options }) {
-  const card = node('div', null, 'approval');
-  card.append(node('strong', 'Approval needed'), node('p', title));
-  if (detail) card.append(node('pre', detail, 'approval-detail'));
+  const card = approvalCard({ title, detail });
   const actions = node('div', null, 'form-actions');
   const sessionId = state.session.id;
   for (const option of options) {

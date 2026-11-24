@@ -1,118 +1,22 @@
 // Offline Gemini-shaped chat-completions and cloud opt-in acceptance tests.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { makeSandbox } from '../scripts/make-sandbox.mjs';
-import { isBloomSandbox, SANDBOX_MARKER } from '../src/sandbox-marker.mjs';
-import { probeProvider, PROBE_MESSAGE } from '../src/probe.mjs';
+import { isBloomSandbox } from '../src/sandbox-marker.mjs';
 import { createChatProvider } from '../src/models.mjs';
-import { providerFailureReason } from '../src/provider-errors.mjs';
 import { createCodingRuntime } from '../src/coding-loop.mjs';
 import { endpointRedactor } from '../src/endpoint-privacy.mjs';
 import { openCodingSession, copyDemoRepo } from './fixtures/coding-session.mjs';
 import { action } from './fixtures/demo-provider.mjs';
+import { fakeBase, markerBase, keyMarker, sse, folders } from './fixtures/cloud-fixture.mjs';
 
 const marker = 'bloom-cloud-endpoint-marker';
-const keyMarker = 'bloom-cloud-key-marker-value';
-const fakeBase = 'https://cloud.example.invalid/v1beta/openai';
-const markerBase = 'https://' + marker + '.invalid/v1beta/openai';
 const bin = fileURLToPath(new URL('../bin/bloom.mjs', import.meta.url));
-
-const sse = (chunks) => new Response(new ReadableStream({ start(controller) {
-  const encoder = new TextEncoder();
-  for (const chunk of chunks) controller.enqueue(encoder.encode('data: ' + JSON.stringify(chunk) + '\n\n'));
-  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-  controller.close();
-} }), { headers: { 'content-type': 'text/event-stream' } });
-
-function googleError(status, message, statusName) {
-  return Response.json({ error: { code: status, message, status: statusName } }, { status });
-}
-
-function folders(t) {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'bloom-cloud-')));
-  const closers = [];
-  t.after(async () => {
-    for (const close of closers.reverse()) await close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-  return {
-    path: directory,
-    closeLater(fn) { closers.push(fn); },
-  };
-}
-
-test('probe-matches-models-prefixed-ids', async () => {
-  const backend = 'gemini-4-hydrogen';
-  const fetcher = async (url) => {
-    if (String(url).endsWith('/models')) {
-      return Response.json({ data: [{ id: 'models/' + backend }] });
-    }
-    return sse([{ model: backend, choices: [{ delta: { content: 'OK' }, finish_reason: null }] }]);
-  };
-  const result = await probeProvider({
-    provider: { base: fakeBase, baseURL: fakeBase },
-    alias: 'coder', backendModel: backend, fetcher,
-  });
-  const model = result.checks.find(item => item.check === 'Model');
-  assert.equal(model.status, 'pass');
-  assert.deepEqual(result.profile.model, { value: backend, source: 'probed' });
-});
-
-test('probe-accepts-thinking-model-stream', async () => {
-  // Gemini 4 may stream with no content and finish length; one SSE chunk is enough.
-  const fetcher = async (url) => {
-    if (String(url).endsWith('/models')) return Response.json({ data: [{ id: 'models/gemini-4-hydrogen' }] });
-    return sse([{ model: 'gemini-4-hydrogen', choices: [{ delta: {}, finish_reason: 'length' }] }]);
-  };
-  const result = await probeProvider({
-    provider: { base: fakeBase, baseURL: fakeBase },
-    alias: 'coder', backendModel: 'gemini-4-hydrogen', fetcher,
-  });
-  assert.equal(result.checks.find(item => item.check === 'Streaming').status, 'pass');
-  assert.deepEqual(result.profile.streaming, { value: true, source: 'probed' });
-});
-
-test('probe-and-loop-report-rate-limit', async t => {
-  const dir = folders(t);
-  const fetcher = async (url) => {
-    if (String(url).endsWith('/models')) return googleError(429, 'Resource exhausted', 'RESOURCE_EXHAUSTED');
-    return googleError(429, 'Resource exhausted', 'RESOURCE_EXHAUSTED');
-  };
-  const probed = await probeProvider({
-    provider: { base: fakeBase, baseURL: fakeBase },
-    alias: 'coder', backendModel: 'gemini-4-hydrogen', fetcher,
-  });
-  assert.equal(probed.checks.find(item => item.check === 'Reachability').status, 'fail');
-  assert.match(probed.checks.find(item => item.check === 'Reachability').detail, /rate-limited/);
-
-  const provider = createChatProvider({
-    baseURL: markerBase, locality: 'cloud', defaultModel: 'gemini-4-hydrogen',
-    fetcher: async () => googleError(429, 'Resource exhausted', 'RESOURCE_EXHAUSTED'),
-  });
-  const workspace = copyDemoRepo(join(dir.path, 'workspace'));
-  writeFileSync(join(workspace, SANDBOX_MARKER), 'bloom-sandbox-v1\n');
-  const opened = openCodingSession({
-    dataDirectory: join(dir.path, 'data'), workspace, provider, model: 'gemini-4-hydrogen',
-    runtime: { cloud: true },
-  });
-  dir.closeLater(() => opened.close());
-  const { ending, events } = await opened.run('List files.', () => 'allow_once');
-  assert.equal(ending.status, 'rate-limited');
-  assert.equal(events.filter(event => event.type === 'model.call').length, 0);
-});
-
-test('google-error-shape-maps-to-reasons', () => {
-  assert.equal(providerFailureReason({ status: 429, body: { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'quota' } } }), 'rate-limited');
-  assert.equal(providerFailureReason({ status: 401, body: { error: { code: 401, status: 'UNAUTHENTICATED', message: 'key' } } }), 'http-401');
-  assert.equal(providerFailureReason({ status: 403, body: { error: { code: 403, status: 'PERMISSION_DENIED', message: 'denied' } } }), 'http-403');
-  assert.equal(providerFailureReason({ status: 500, body: { error: { message: 'boom' } } }), 'http-500');
-});
 
 test('cloud-refused-without-flag-and-config', t => {
   const dir = folders(t);
@@ -396,22 +300,20 @@ test('chat-error-body-is-not-echoed', t => {
     input: 'Hello.\n1\n/exit\n', timeout: 15_000,
   });
   const printed = run.stdout + run.stderr;
-  assert.notEqual(readFileSync(countFile, 'utf8'), '0', 'cloud request was never sent');
+  assert.equal(readFileSync(countFile, 'utf8'), '1', 'one cloud request was expected');
   assert.ok(!printed.includes(keyMarker), 'error body key marker leaked');
 });
 
 test('tests-never-configure-a-real-cloud-host', () => {
   const root = fileURLToPath(new URL('.', import.meta.url));
-  const files = ['cloud-gemini.test.mjs', 'live/live-suite.live.mjs'];
+  const files = ['cloud-gemini.test.mjs', 'probe-provider.test.mjs', 'fixtures/cloud-fixture.mjs', 'live/live-suite.live.mjs'];
   for (const name of files) {
     const source = readFileSync(new URL('./' + name, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /generativelanguage\.googleapis\.com/, name);
   }
 });
 
-test('live-suite-cloud-needs-second-flag', async t => {
-  const { requireCloudFlag } = await import('../src/live-cloud-flag.mjs');
-  const { readTerminalProvider } = await import('../src/cli/config.mjs');
+test('live-suite-cloud-needs-second-flag', t => {
   const dir = folders(t);
   const data = join(dir.path, 'data');
   mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -420,22 +322,33 @@ test('live-suite-cloud-needs-second-flag', async t => {
     providers: { aistudio: { kind: 'chat-completions', baseURL: fakeBase, locality: 'cloud', apiKeyEnv: 'GEMINI_API_KEY' } },
     models: { aliases: [{ alias: 'coder', backendModel: 'gemini-4-hydrogen', workload: 'code' }], default: 'coder' },
   }), { mode: 0o600 });
-  let fetches = 0;
-  const previous = globalThis.fetch;
-  globalThis.fetch = async () => { fetches += 1; throw new Error('no network'); };
-  const previousAllow = process.env.BLOOM_LIVE_ALLOW_CLOUD;
-  delete process.env.BLOOM_LIVE_ALLOW_CLOUD;
-  t.after(() => {
-    globalThis.fetch = previous;
-    if (previousAllow === undefined) delete process.env.BLOOM_LIVE_ALLOW_CLOUD;
-    else process.env.BLOOM_LIVE_ALLOW_CLOUD = previousAllow;
+  const counter = join(dir.path, 'outbound-requests');
+  writeFileSync(counter, '');
+  const preload = 'data:text/javascript,' + encodeURIComponent(
+    'import { appendFileSync } from "node:fs";\n'
+    + 'globalThis.fetch = async () => { appendFileSync(' + JSON.stringify(counter)
+    + ', "attempt\\n"); throw new Error("Offline fixture"); };',
+  );
+  const liveSuite = fileURLToPath(new URL('./live/live-suite.live.mjs', import.meta.url));
+  const run = spawnSync(process.execPath, [
+    '--import', preload, '--test', '--test-reporter=tap',
+    '--test-name-pattern=live-probe-passes|live-output-has-no-endpoint-or-key', liveSuite,
+  ], {
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH,
+      HOME: dir.path,
+      USERPROFILE: dir.path,
+      BLOOM_LIVE: '1',
+      BLOOM_LIVE_DATA_DIR: data,
+    },
+    timeout: 15_000,
   });
-  const provider = readTerminalProvider(data);
-  assert.ok(provider);
-  assert.equal(provider.local, false);
-  assert.throws(() => requireCloudFlag(provider), /BLOOM_LIVE_ALLOW_CLOUD/);
-  assert.equal(fetches, 0);
-  const suite = readFileSync(new URL('./live/live-suite.live.mjs', import.meta.url), 'utf8');
-  assert.match(suite, /live-cloud-flag\.mjs/);
-  assert.match(suite, /requireCloudFlag\s*\(/);
+  assert.equal(run.error, undefined);
+  assert.equal(run.status, 1);
+  assert.equal(readFileSync(counter, 'utf8'), '', 'a gated live test attempted a request');
+  for (const name of ['live-probe-passes', 'live-output-has-no-endpoint-or-key']) {
+    assert.match(run.stdout, new RegExp('not ok \\d+ - ' + name + '\\b'), name);
+  }
+  assert.equal([...run.stdout.matchAll(/Cloud live probe needs BLOOM_LIVE_ALLOW_CLOUD=1 as well\./g)].length, 2);
 });

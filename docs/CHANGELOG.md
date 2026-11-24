@@ -18,10 +18,14 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 
 ### Changed
 
+- Separate the command gate and split its documentation and regression fixtures into smaller files (CAP-04, bloom#10).
+
 - Harden the command gate: distinct refusal reasons, linked-folder argument containment, `.git` write refusal, git config overrides, npm network-flag refusal, attached short-option paths, `node --run` refusal, and allow-only approvals (CAP-04, bloom#5).
 - Terminal cloud providers need `--allow-cloud` inside a make-sandbox folder; while cloud is on, reads ask first, session allow is off, team sessions are refused, and model rows say cloud (CAP-16, bloom#9).
 
 ### Fixed
+
+- Verify command refusals before approval, reject relative command-search entries and probe redirects, preserve full approval text, and classify named Google authentication errors before generic HTTP errors (CAP-04, bloom#10).
 
 - Check Windows metadata paths against the resolved `.git` directory and use Git to configure the command gate test repository (CAP-04, bloom#5).
 - Close the coding-loop test store before deleting its temp tree, and keep fixtures as LF, so Windows CI no longer fails on EBUSY unlinks or CRLF session exports (CAP-04, bloom#5).

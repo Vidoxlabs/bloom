@@ -111,6 +111,8 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Evidence
 
+- The shell and Git gate tests cover relative search paths and pre-approval refusal. The browser fixture verifies literal text and complete approval detail. Provider fixtures exercise redirects, named Google failures and both second-flag checks with synthetic requests.
+
 - `CAP-04.3`: `test/shell-gate.test.mjs` checks Git metadata refusal and keeps ordinary directories writable. Its Git fixture reads back the repository settings and requires status, add, commit, and diff to succeed without running the configured programs.
 - Cloud opt-in and Gemini (bloom#9): `src/sandbox-marker.mjs` and `scripts/make-sandbox.mjs` mark throwaway sandboxes; `--allow-cloud` gates cloud providers in the terminal; `src/provider-errors.mjs` maps Google rate-limit errors; `test/cloud-gemini.test.mjs` covers the offline gate and probe shape; `test/live/live-suite.live.mjs` is loaded only by `npm run test:live`.
 - Live-test kit (bloom#8): `scripts/make-sandbox.mjs` makes the throwaway sandbox, `src/web.mjs` builds the web workspace from the private config only, `public/coding-view.js` formats the browser's model and tool rows, and `docs/live-test.md` is the runbook. `test/live-test-kit.test.mjs` covers each, and checks that every command the runbook names exists.
@@ -119,6 +121,8 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `CAP-04.2`: `test/workspace-tools.test.mjs` exercises file path containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, the disabled-by-default command gate, command environment, and timeout.
 
 ## Changes
+
+- 2026-11-24. Cover command refusal before approval, keep approval details as text, and separate command and provider test modules.
 
 - `2026-11-24`: Use native resolved Git metadata paths on Windows and make the command gate fixture portable (CAP-04, bloom#5).
 

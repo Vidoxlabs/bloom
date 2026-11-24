@@ -84,6 +84,26 @@ test('coding-loop-fixes-fixture-offline', async t => {
   assert.equal(network.length, 0);
 });
 
+test('refused-command-never-requests-permission', async t => {
+  const provider = scriptedProvider([
+    action('workspace.shell.execute', { command: 'unsupported-command', args: [] }),
+    action('run.answer.create', { text: 'No command ran.' }),
+  ]);
+  const opened = await session(t, { provider });
+  const prompts = [];
+  const { events, ending } = await opened.run('Run the fixture command.', request => {
+    prompts.push(request.toolId);
+    return 'allow_once';
+  });
+  assert.equal(ending.status, 'finished');
+  assert.deepEqual(prompts, []);
+  assert.deepEqual(rows(events).map(row => [row.toolId, row.status]), [
+    ['workspace.shell.execute', 'refused'],
+    ['run.answer.create', 'completed'],
+  ]);
+  assert.equal(rows(events)[0].reason, 'WORKSPACE_COMMAND_REFUSED');
+});
+
 test('demo-session-fixture-is-lf', () => {
   const bytes = readFileSync(fixtureFile);
   assert.equal(bytes.includes(0x0d), false, 'the recorded session must stay LF so Windows matches Unix');
