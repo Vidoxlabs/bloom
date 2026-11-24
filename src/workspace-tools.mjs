@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, realpathSync } from 'node:fs';
 import { lstat, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -258,7 +258,14 @@ function runCommand(root, command, args, env, timeoutMs, capture, signal) {
 export function createWorkspaceTools(workspace, {
   outputLimitBytes = 32_768, timeoutMs = 15_000, environment = process.env,
 } = {}) {
-  const root = workspacePath(workspace);
+  const validated = workspacePath(workspace);
+  let root;
+  try {
+    // Match the native resolver used by node:fs/promises for tool paths.
+    root = realpathSync.native(validated);
+  } catch {
+    throw new BloomError('WORKSPACE_UNAVAILABLE', 'Choose an accessible workspace directory.', 400);
+  }
   if (!Number.isSafeInteger(outputLimitBytes) || outputLimitBytes < 0 ||
       !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 0x7fffffff) {
     throw invalidArgument('Choose valid output and timeout limits.');

@@ -84,3 +84,4 @@ The portable suite exercises the budgets, group handoffs, review hold, restart, 
 ## Changes
 
 - 2026-11-24: Add contained workspace executors and bounded output records behind the internal tool interface (CAP-04, bloom#4).
+- 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -28,6 +30,24 @@ test('workspace-root-containment-refuses-escape', async t => {
   }
   assert.equal(await readFile(outsideFile, 'utf8'), 'outside');
   await assert.rejects(readFile(join(outside, 'new.txt')), { code: 'ENOENT' });
+});
+
+test('workspace-revalidation-uses-one-canonical-path-representation', async t => {
+  const { root, outside, createWorkspaceTools } = await fixture(t);
+  const alias = join(outside, 'workspace-alias');
+  await symlink(root, alias, 'junction');
+  await writeFile(join(root, 'note.txt'), 'inside');
+  const resolveSync = fs.realpathSync;
+  const mock = t.mock.method(fs, 'realpathSync', (path, ...options) => path === root ? alias : resolveSync(path, ...options));
+  mock.native = resolveSync.native;
+  syncBuiltinESMExports();
+  try {
+    const result = await createWorkspaceTools(root).execute('workspace.file.read', { path: 'note.txt' });
+    assert.equal(result.output, 'inside');
+  } finally {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
 
 test('per-path-write-serialization', async t => {

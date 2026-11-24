@@ -88,10 +88,11 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 ## Evidence
 
 - `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
-- `CAP-04.2`: `test/workspace-tools.test.mjs` exercises containment, concurrent writes, exact matching, capped output and digests, command environment, and timeout.
+- `CAP-04.2`: `test/workspace-tools.test.mjs` exercises containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, command environment, and timeout.
 
 ## Changes
 
 - `2026-11-24`: Record the D12 tool face and D15 dependency decisions and add workspace executors (CAP-04, bloom#4).
+- `2026-11-24`: Align root canonicalization with the native resolver used for tool paths (CAP-04, bloom#4).
 - `2026-11-23`: Added `M2` slice milestones across `CAP-04.1`..`CAP-04.3` and aligned `D12` wording.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.
