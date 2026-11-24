@@ -137,28 +137,36 @@ Before a command runs outside tests, all of these hold:
    update notifier, fund and audit messages off; and `GIT_CONFIG_NOSYSTEM=1`,
    `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` and `PAGER=cat`. Every git command
    also forces `core.fsmonitor=false`, an empty `core.hooksPath` under the
-   temporary home, an empty `diff.external`, and `core.pager=cat` through
-   `GIT_CONFIG_COUNT` overrides. If removing the temporary home fails, the
+   temporary home, and `core.pager=cat` through `GIT_CONFIG_COUNT` overrides,
+   and adds `--no-ext-diff` on `git diff` and `git log` so a planted
+   `diff.external` never runs. If removing the temporary home fails, the
    command result is kept and its trace row says "home cleanup failed".
 5. Every command asks for approval and shows the command and every argument.
    There is no session-wide allow for commands. A call runs only on
    `allow-once` or `allow-session`; any other choice is a rejection.
-6. File tools refuse any write or update under `.git/` at any depth, after path
-   resolution and case-insensitively.
+6. File tools refuse any write or update under `.git/` at any depth: a
+   case-insensitive string check on path segments before any existence or
+   realpath lookup, then a second check on the resolved target that treats
+   trailing dots and spaces on a segment as insignificant and also refuses
+   Windows 8.3 short names such as `GIT~1` that resolve to the `.git` folder.
 
 ### Residual risk
 
 Approval of each call is the boundary. `npm test` runs whatever the
 `package.json` scripts say, and the model may have written those scripts in an
 approved write. Commands can reach the network: npm is set offline (flags that
-change registry, cache or online mode are refused) and git is limited to local
-subcommands with fsmonitor, hooks and `diff.external` forced off, but Bloom does
-not block network access from the process. The isolated `HOME` only changes the
-environment variable, so a command can still find your real home folder through
-the operating system's account lookup, and ssh-based git uses that account entry
-too. A detached grandchild process can outlive the call, because Bloom stops
-only the process group it launched. Writes under `.git/` are refused; other
-repository metadata outside `.git/` can still be written if approved.
+change registry, cache or online mode are refused, including unambiguous npm
+option prefixes) and git is limited to local subcommands with fsmonitor, hooks,
+`diff.external` and the pager forced off, but Bloom does not block network
+access from the process. The repository's own git config is trusted input and
+can still name programs (`textconv`, filters, `core.editor`); only fsmonitor,
+hooks, `diff.external` and the pager are forced off. The isolated `HOME` only
+changes the environment variable, so a command can still find your real home
+folder through the operating system's account lookup, and ssh-based git uses
+that account entry too. A detached grandchild process can outlive the call,
+because Bloom stops only the process group it launched. Writes under `.git/`
+are refused; other repository metadata outside `.git/` can still be written if
+approved.
 
 ## Cloud providers
 
