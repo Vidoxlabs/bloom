@@ -11,6 +11,9 @@ Everything committed here can be read by anyone.
 3. `docs/architecture.md` — what the workspace claims. Where it names an older system, treat that as a local stand-in until `src/` imports the sibling that owns the province.
 4. `src/` — what actually runs. If a document and `src/` disagree, `src/` wins.
 5. `docs/ui/` and `docs/backend/` — later-pass notes. They are not shipped behavior until the code they name is in `src/`.
+6. `docs/capabilities/`: local capability ledger (`index.json`) and lead capability specs.
+
+Same-PR ledger rule: every slice PR updates `docs/capabilities/index.json`, its spec's `Evidence` and `Changes` sections, `docs/CHANGELOG.md`, and affected contract `Changes` sections in the same PR.
 
 ## Claim discipline
 
