@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, realpathSync } from 'node:fs';
-import { lstat, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -11,6 +12,7 @@ import { workspacePath } from './harness.mjs';
 
 const writes = new Map();
 const temporaryPrefix = '.bloom-write-';
+const testCommandMode = ['uncontained', 'test', 'only'].join('-');
 
 function invalidArgument(message) {
   return new BloomError('WORKSPACE_ARGUMENT_INVALID', message, 400);
@@ -31,9 +33,13 @@ function textArgument(value, name, allowEmpty = false) {
   return value;
 }
 
-function requireInside(root, target) {
+function isOutside(root, target) {
   const suffix = relative(root, target);
-  if (suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix)) throw outsideWorkspace();
+  return suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix);
+}
+
+function requireInside(root, target) {
+  if (isOutside(root, target)) throw outsideWorkspace();
   return target;
 }
 
@@ -190,9 +196,30 @@ async function searchText(root, target, query, capture) {
   }
 }
 
-function commandEnvironment(environment) {
-  const env = {};
-  for (const name of ['PATH', 'HOME', 'LANG', 'TERM']) {
+async function commandHome(workspace) {
+  const userHome = await realpath(homedir()).catch(() => null);
+  if (userHome === null) throw commandFailed();
+  const systemTemp = process.platform === 'win32'
+    ? process.env.SystemRoot && join(process.env.SystemRoot, 'Temp')
+    : join(sep, 'tmp');
+  for (const candidate of new Set([tmpdir(), process.env.RUNNER_TEMP, systemTemp])) {
+    if (!candidate || !isAbsolute(candidate)) continue;
+    try {
+      const root = await realpath(candidate);
+      if (isOutside(workspace, root) && isOutside(userHome, root)) {
+        return await mkdtemp(join(root, 'bloom-command-'));
+      }
+    } catch {
+      // Try the next system scratch directory.
+    }
+  }
+  throw commandFailed();
+}
+
+function commandEnvironment(environment, home) {
+  const env = { HOME: home };
+  if (process.platform === 'win32') env.USERPROFILE = home;
+  for (const name of ['PATH', 'LANG', 'TERM']) {
     if (typeof environment[name] === 'string') env[name] = environment[name];
   }
   return env;
@@ -256,8 +283,11 @@ function runCommand(root, command, args, env, timeoutMs, capture, signal) {
 }
 
 export function createWorkspaceTools(workspace, {
-  outputLimitBytes = 32_768, timeoutMs = 15_000, environment = process.env,
+  outputLimitBytes = 32_768, timeoutMs = 15_000, environment = process.env, commands = 'disabled',
 } = {}) {
+  if (commands !== 'disabled' && commands !== testCommandMode) {
+    throw invalidArgument('Choose a valid command mode.');
+  }
   const validated = workspacePath(workspace);
   let root;
   try {
@@ -281,12 +311,21 @@ export function createWorkspaceTools(workspace, {
     try {
       if (await realpath(root) !== root) throw new BloomError('WORKSPACE_CHANGED', 'The workspace directory changed.', 409);
       if (id === 'workspace.shell.execute') {
+        if (commands !== testCommandMode) {
+          throw new BloomError('WORKSPACE_COMMAND_DISABLED',
+            'Workspace commands stay disabled until command allowlisting and argument containment land.', 403);
+        }
         const command = textArgument(args.command, 'command');
         const argv = args.args === undefined ? [] : args.args;
         if (!Array.isArray(argv) || !Array.from(argv).every(item => typeof item === 'string')) {
           throw invalidArgument('Provide command arguments as an array of strings.');
         }
-        return await runCommand(root, command, argv, commandEnvironment(environment), timeoutMs, capture, signal);
+        const home = await commandHome(root);
+        try {
+          return await runCommand(root, command, argv, commandEnvironment(environment, home), timeoutMs, capture, signal);
+        } finally {
+          await rm(home, { recursive: true, force: true, maxRetries: 3 });
+        }
       }
       if (id === 'run.answer.create') {
         capture.append(textArgument(args.text, 'text', true));

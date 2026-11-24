@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { test } from 'node:test';
+
+const testCommands = { commands: 'uncontained-test-only' };
 
 async function fixture(t, options) {
   const directory = await mkdtemp(join(tmpdir(), 'bloom-tools-'));
@@ -64,7 +66,7 @@ test('per-path-write-serialization', async t => {
 });
 
 test('capped-output-reports-truncated-bytes-and-sha256', async t => {
-  const { root, tools } = await fixture(t, { outputLimitBytes: 5 });
+  const { root, tools } = await fixture(t, { ...testCommands, outputLimitBytes: 5 });
   const full = 'abcd\u{1f680}ef';
   await writeFile(join(root, 'note.txt'), full);
   const expected = {
@@ -92,30 +94,71 @@ test('update-requires-unique-match', async t => {
   assert.equal(await readFile(join(root, path), 'utf8'), '$&');
 });
 
+test('shell-disabled-by-default', async t => {
+  const { root, tools } = await fixture(t);
+  const target = 'unexpected.txt';
+  await assert.rejects(tools.execute('workspace.shell.execute', {
+    command: process.execPath, args: ['-e', "require('node:fs').writeFileSync(process.argv[1], 'fixture')", target],
+  }), { code: 'WORKSPACE_COMMAND_DISABLED' });
+  await assert.rejects(readFile(join(root, target)), { code: 'ENOENT' });
+});
+
+test('shell-mode-is-validated', async t => {
+  const { root, createWorkspaceTools } = await fixture(t);
+  assert.throws(() => createWorkspaceTools(root, { commands: 'enabled' }),
+    { code: 'WORKSPACE_ARGUMENT_INVALID', message: 'Choose a valid command mode.' });
+});
+
+test('no-entry-point-enables-uncontained-commands', async () => {
+  for (const directory of ['src', 'bin', 'scripts', 'checks']) {
+    const files = await readdir(new URL(`../${directory}/`, import.meta.url), { recursive: true, withFileTypes: true });
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith('.mjs')) continue;
+      const source = await readFile(join(file.parentPath, file.name), 'utf8');
+      assert.ok(!source.includes(testCommands.commands), file.name);
+    }
+  }
+});
+
+function pathIsOutside(base, candidate) {
+  const path = relative(base, candidate);
+  return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path);
+}
+
 test('shell-env-drops-secret-like-names', async t => {
   const { root, tools } = await fixture(t, {
+    ...testCommands,
     environment: {
       PATH: 'fixture-path', HOME: 'fixture-home', LANG: 'fixture-lang', TERM: 'fixture-term',
       FIXTURE_KEY: 'denied', FIXTURE_TOKEN: 'denied', FIXTURE_SECRET: 'denied', EXTRA: 'denied',
     },
   });
-  const program = 'process.stdout.write(JSON.stringify([process.cwd(), process.argv[1], process.env]))';
+  const program = "process.stdout.write(JSON.stringify([process.cwd(), process.argv[1], process.env, require('node:fs').statSync(process.env.HOME).isDirectory()]))";
   const result = await tools.execute('workspace.shell.execute', {
     command: process.execPath, args: ['-e', program, 'literal; text'],
   });
-  const [directory, argument, environment] = JSON.parse(result.output);
+  const [directory, argument, environment, homeExists] = JSON.parse(result.output);
   assert.equal(await realpath(directory), await realpath(root));
   assert.equal(argument, 'literal; text');
   // Some platforms add locale metadata after launch. Compare the supplied keys.
-  const names = ['PATH', 'HOME', 'LANG', 'TERM', 'FIXTURE_KEY', 'FIXTURE_TOKEN', 'FIXTURE_SECRET', 'EXTRA'];
+  const names = ['PATH', 'LANG', 'TERM', 'FIXTURE_KEY', 'FIXTURE_TOKEN', 'FIXTURE_SECRET', 'EXTRA'];
   const forwarded = Object.fromEntries(names.filter(name => Object.hasOwn(environment, name))
     .map(name => [name, environment[name]]));
-  assert.deepEqual(forwarded, { PATH: 'fixture-path', HOME: 'fixture-home', LANG: 'fixture-lang', TERM: 'fixture-term' });
+  assert.deepEqual(forwarded, { PATH: 'fixture-path', LANG: 'fixture-lang', TERM: 'fixture-term' });
+  assert.equal(homeExists, true);
+  assert.ok(isAbsolute(environment.HOME));
+  assert.ok(pathIsOutside(await realpath(root), environment.HOME));
+  assert.ok(pathIsOutside(await realpath(homedir()), environment.HOME));
+  if (process.platform === 'win32') assert.equal(environment.USERPROFILE, environment.HOME);
+  assert.equal((await readdir(root)).length, 0);
+  await assert.rejects(readdir(environment.HOME), { code: 'ENOENT' });
+  const repeated = await tools.execute('workspace.shell.execute', { command: process.execPath, args: ['-e', program] });
+  assert.notEqual(JSON.parse(repeated.output)[2].HOME, environment.HOME);
   assert.equal(result.exitCode, 0);
 });
 
 test('shell-timeout-reported', async t => {
-  const { tools } = await fixture(t, { timeoutMs: 120 });
+  const { tools } = await fixture(t, { ...testCommands, timeoutMs: 120 });
   const result = await tools.execute('workspace.shell.execute', {
     command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'],
   });

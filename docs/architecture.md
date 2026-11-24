@@ -41,8 +41,8 @@ Stopping or losing a server never implicitly repeats a model call. In-progress t
 ## Workspace tools
 
 `src/workspace-tools.mjs` binds Drosera's workspace tool pack to the canonical
-session directory from `workspacePath`. Its internal executor checks relative
-paths and resolved link targets before content I/O. A recursive text search
+session directory from `workspacePath`. Its file tools check relative paths
+and resolved link targets before content I/O. A recursive text search
 visits regular workspace files in path order. Directory output and search
 matches use workspace-relative names.
 
@@ -50,10 +50,15 @@ Writes queue by canonical path in the Bloom process and replace the target
 atomically. A targeted update needs one exact match, including the check for
 overlapping matches. Command execution uses the canonical workspace as its
 working directory and takes an executable and arguments without shell
-expansion. Bloom forwards `PATH`, `HOME`, `LANG`, and `TERM`. The command deadline
+expansion. Bloom forwards `PATH`, `LANG`, and `TERM`. Each command gets a fresh
+temporary `HOME`, and `USERPROFILE` on Windows, outside the workspace and the
+user's home. Bloom removes it after the run. The command deadline
 stops output capture and terminates the launched process. On POSIX it targets
 the process group. Commands run under the local OS account and the coding
 adapter owns the approval and dispatch flow.
+Command arguments are not path-contained in this release. The executor refuses
+`workspace.shell.execute` unless a test opts in, and no Bloom entry point opts
+in. CAP-04.3 adds a command allowlist and argument containment before any live run.
 
 The executor returns `output`, `truncatedBytes`, and `outputSha256`. It keeps a
 UTF-8 prefix ending at a complete code point and hashes the full decoded text
@@ -83,5 +88,5 @@ The portable suite exercises the budgets, group handoffs, review hold, restart, 
 
 ## Changes
 
-- 2026-11-24: Add contained workspace executors and bounded output records behind the internal tool interface (CAP-04, bloom#4).
+- 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
 - 2026-11-24: Use one native path resolver for workspace root and tool path comparisons (CAP-04, bloom#4).
