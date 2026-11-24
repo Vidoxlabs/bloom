@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
 import { dataPath } from '../data-dir.mjs';
+import { autonomousLimits } from '../autonomous-budget.mjs';
 import { BloomError } from '../errors.mjs';
 import { Harness, workspacePath } from '../harness.mjs';
 import { Store } from '../store.mjs';
@@ -165,7 +166,8 @@ async function runCommand(action, args, values) {
     } else configured = true;
   }
   if (!headless && configured) nextLine = attachReader();
-  const streams = { stdout, headless, nextLine, policy };
+  const autonomous = values.autonomous ? autonomousLimits({ callLimit: limits.callLimit }) : null;
+  const streams = { stdout, headless, nextLine, policy, runLimits: autonomous };
   renderer = values.json ? jsonRenderer(streams) : lineRenderer(streams);
   if (!configured) {
     return provider
@@ -180,7 +182,6 @@ async function runCommand(action, args, values) {
   if (provider && /-cloud$/i.test(model) && !cloud) {
     return completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(), values.json);
   }
-  const autonomous = values.autonomous ? { callLimit: limits.callLimit } : null;
   openHarness({ ...provider, demo: values.demo, model, terminal: true, headless, profile, cloud, autonomous }, workspace);
   // A workspace without a team name opens the coding loop in that folder.
   const coding = !values.demo && workspace && !values.team;
