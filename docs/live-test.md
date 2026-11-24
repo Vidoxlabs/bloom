@@ -126,12 +126,12 @@ Open the local page the command prints, choose a coding session with the sandbox
 
 ## Google AI Studio
 
-Use the OpenAI-compatible base URL `https://generativelanguage.googleapis.com/v1beta/openai` with a cloud provider and the model id `gemini-4-hydrogen` (or the id your AI Studio list shows). Example provider entry:
+Use your provider's OpenAI-compatible base URL as `<cloud-endpoint>` (the provider's own documentation names it) with a cloud provider and the model id `gemini-4-hydrogen` (or the id your AI Studio list shows). Example provider entry:
 
 ```json
 "aistudio": {
   "kind": "chat-completions",
-  "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "baseURL": "<cloud-endpoint>",
   "locality": "cloud",
   "apiKeyEnv": "GEMINI_API_KEY"
 }
