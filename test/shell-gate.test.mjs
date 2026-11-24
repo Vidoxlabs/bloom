@@ -367,22 +367,19 @@ test('file-tools-refuse-writes-under-dot-git', async t => {
 test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   const { root, tools } = await fixture(t);
   const marker = join(root, 'hook-ran.txt');
-  const hook = process.platform === 'win32'
-    ? `@echo off\necho ran > hook-ran.txt\n`
-    : `#!/bin/sh\necho ran > hook-ran.txt\n`;
-  const fsmonitor = process.platform === 'win32'
-    ? `@echo off\necho ran > hook-ran.txt\n`
-    : `#!/bin/sh\necho ran > hook-ran.txt\n`;
+  const plant = "import { writeFileSync } from 'node:fs'; writeFileSync('hook-ran.txt', 'ran');\n";
   await mkdir(join(root, '.git', 'hooks'), { recursive: true });
-  await writeFile(join(root, 'fsmonitor.sh'), fsmonitor);
+  await writeFile(join(root, 'fsmonitor.mjs'), plant);
+  // Hook scripts must be executable files; call node so the marker path is portable.
+  const hook = process.platform === 'win32'
+    ? `node fsmonitor.mjs\n`
+    : `#!/bin/sh\nexec node fsmonitor.mjs\n`;
   await writeFile(join(root, '.git', 'hooks', 'pre-commit'), hook);
-  if (process.platform !== 'win32') {
-    await chmod(join(root, 'fsmonitor.sh'), 0o755);
-    await chmod(join(root, '.git', 'hooks', 'pre-commit'), 0o755);
-  }
+  if (process.platform !== 'win32') await chmod(join(root, '.git', 'hooks', 'pre-commit'), 0o755);
+  const fsmonitorCmd = `${process.execPath} ${join(root, 'fsmonitor.mjs')}`;
   await writeFile(join(root, '.git', 'config'), [
     '[core]',
-    `	fsmonitor = ${join(root, 'fsmonitor.sh')}`,
+    `	fsmonitor = ${fsmonitorCmd}`,
     '	hooksPath = .git/hooks',
     '',
   ].join('\n'));
