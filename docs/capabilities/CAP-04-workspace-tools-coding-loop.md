@@ -97,19 +97,25 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `D17` Decided 2026-11-24 in bloom#5: Command allowlist: exactly `node`, `npm` and `git`? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
 - `D18` Decided 2026-11-24 in bloom#5: Approvals: write tools always ask, "Allow for session" binds the tool ID plus an arguments digest, and is never offered for `workspace.shell.execute`? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
 - `D19` Decided 2026-11-24 in bloom#5: Should shell commands be able to reach the network in the first live run? Owner's answer, verbatim (2026-11-24): "I accept option A for bloom's coding shell: network not blocked; npm offline; git local-only; risk documented". Confirmed again (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- Decided 2026-11-24 in bloom#5: Did “approved continue” authorize a follow-up on #5 for the Windows fixture and resolved-path check, with verified fixes merged down the stack, or should I keep the review freeze in place? Owner's answer, verbatim: "Yes approved follow up".
+- Decided 2026-11-24 in bloom#5: Which author should I use for new Bloom commits? Owner's answer, verbatim: "Use the configured author".
 - `D25` Decided 2026-11-24 in bloom#8: Web view in this PR? Yes, recommended. The browser client already renders streamed text, tool rows and approvals through the existing permission route. The new work is server-side: read the endpoint from the private config, open a coding session for the workspace, and add model-call rows. Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
 - `D26` Decided 2026-11-24 in bloom#8: `--api-base` on `npm start`: remove the flag entirely, so the web workspace reads the endpoint only from the private config file (recommended)? The alternative keeps it working but undocumented. Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
 - `D27` Decided 2026-11-24 in bloom#8: Web key: the web workspace uses the same key rule as the terminal, the config's named variable. That drops the `[key variable name]` default. (Recommend yes.) Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
 - `D28` Decided 2026-11-24 in bloom#8: Opening a web coding session: `npm start -- --workspace <sandbox folder>` opens a coding session for that folder when the private config has a provider. This reuses the existing `--workspace` flag. (Recommend yes.) Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
+- Decided 2026-11-24 in bloom#8: May I keep every entry from both branches under its existing heading, in stack order, then test and push #8 and #9? Owner's answer, verbatim: "You may assume approval and continue".
 
 ## Evidence
 
+- `CAP-04.3`: `test/shell-gate.test.mjs` checks Git metadata refusal and keeps ordinary directories writable. Its Git fixture reads back the repository settings and requires status, add, commit, and diff to succeed without running the configured programs.
 - Live-test kit (bloom#8): `scripts/make-sandbox.mjs` makes the throwaway sandbox, `src/web.mjs` builds the web workspace from the private config only, `public/coding-view.js` formats the browser's model and tool rows, and `docs/live-test.md` is the runbook. `test/live-test-kit.test.mjs` covers each, and checks that every command the runbook names exists.
 - `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
 - `CAP-04.3`: `test/coding-loop.test.mjs` runs the loop over a synthetic project with a scripted provider and zero network calls, writes the byte-stable session `test/fixtures/demo-session.jsonl` through the export path, and covers the repair budget, admission, approvals, headless refusal, trace rows and endpoint masking. `test/shell-gate.test.mjs` covers the command gate, `test/model-stream.test.mjs` the streamed client, and `test/cli-coding.test.mjs` the headless terminal path.
 - `CAP-04.2`: `test/workspace-tools.test.mjs` exercises file path containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, the disabled-by-default command gate, command environment, and timeout.
 
 ## Changes
+
+- `2026-11-24`: Use native resolved Git metadata paths on Windows and make the command gate fixture portable (CAP-04, bloom#5).
 
 - `2026-11-24`: Harden the command gate (distinct refusal reasons, linked-folder containment, `.git` write refusal, git config overrides, npm network flags, attached short options, `node --run`, allow-only approvals) and record the typed D19 answer (CAP-04, bloom#5).
 - `2026-11-24`: Add the live-test kit and the web coding view, read the web endpoint only from the private config, and record D25 to D28 (CAP-04, bloom#8).

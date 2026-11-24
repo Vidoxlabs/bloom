@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { constants, createReadStream, realpathSync } from 'node:fs';
+import { constants, createReadStream, realpath as callbackRealpath, realpathSync } from 'node:fs';
 import { access, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { promisify } from 'node:util';
 
 import { workspaceToolPack } from '@vidoxlabs/drosera';
 import { BloomError } from './errors.mjs';
@@ -12,6 +13,7 @@ import { workspacePath } from './harness.mjs';
 
 const writes = new Map();
 const temporaryPrefix = '.bloom-write-';
+const resolveWorkspacePath = process.platform === 'win32' ? promisify(callbackRealpath.native) : realpath;
 
 // The one way to turn on workspace commands. Only the coding loop passes it; a guard test holds that.
 export const workspaceCommandAccess = Symbol('bloom.workspace-command-access');
@@ -83,10 +85,10 @@ function requestedPath(root, value) {
 
 async function canonicalTarget(root, target, allowMissing = false) {
   try {
-    return requireInside(root, await realpath(target));
+    return requireInside(root, await resolveWorkspacePath(target));
   } catch (error) {
     if (!allowMissing || error.code !== 'ENOENT') throw error;
-    const parent = requireInside(root, await realpath(dirname(target)));
+    const parent = requireInside(root, await resolveWorkspacePath(dirname(target)));
     const candidate = join(parent, basename(target));
     try {
       await lstat(candidate);
@@ -298,20 +300,19 @@ function underDotGit(path) {
   return path.split(/[\\/]/).some(part => part.toLowerCase() === '.git');
 }
 
-// After realpath: refuse when a resolved segment is .git (case-insensitive), a Windows
-// trailing-dot/space variant, or an 8.3 short name such as GIT~1.
-function normalizePathSegment(part) {
-  return part.replace(/[.\s]+$/g, '').toLowerCase();
-}
+async function underDotGitTarget(root, target) {
+  const segments = relative(root, target).split(/[\\/]/);
+  if (segments.some(part => part.replace(/[. ]+$/g, '').toLowerCase() === '.git')) return true;
+  if (process.platform !== 'win32') return false;
 
-function underDotGitTarget(root, target) {
-  const rel = relative(root, target);
-  if (!rel || rel === '.') return false;
-  return rel.split(/[\\/]/).some(part => {
-    if (!part || part === '.') return false;
-    if (normalizePathSegment(part) === '.git') return true;
-    return /^git~\d+$/i.test(part);
-  });
+  // Compare native paths on Windows so short aliases follow the actual metadata location.
+  try {
+    const metadata = await resolveWorkspacePath(join(root, '.git'));
+    return !isOutside(metadata, target);
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 function refuseDotGit() {
@@ -506,7 +507,7 @@ export function createWorkspaceTools(workspace, {
     if (args === null || typeof args !== 'object' || Array.isArray(args)) throw invalidArgument('Provide tool arguments as an object.');
     const capture = captureOutput(outputLimitBytes);
     try {
-      if (await realpath(root) !== root) throw new BloomError('WORKSPACE_CHANGED', 'The workspace directory changed.', 409);
+      if (await resolveWorkspacePath(root) !== root) throw new BloomError('WORKSPACE_CHANGED', 'The workspace directory changed.', 409);
       if (id === 'workspace.shell.execute') {
         if (commands !== workspaceCommandAccess) {
           throw new BloomError('WORKSPACE_COMMAND_DISABLED', 'Workspace commands are disabled outside the coding loop.', 403);
@@ -545,7 +546,7 @@ export function createWorkspaceTools(workspace, {
         throw refuseDotGit();
       }
       const target = await canonicalTarget(root, requestedPath(root, requested), id === 'workspace.file.write');
-      if (writing && underDotGitTarget(root, target)) {
+      if (writing && await underDotGitTarget(root, target)) {
         throw refuseDotGit();
       }
       if (id === 'workspace.file.write' || id === 'workspace.file.update') {
