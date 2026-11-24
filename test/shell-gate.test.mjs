@@ -144,8 +144,18 @@ test('shell-refuses-eval-flags', async t => {
   await assertNothingRan(root);
   // git is found on the inherited search path, like a person's own terminal.
   const withGit = createWorkspaceTools(root, { commands: workspaceCommandAccess, searchPath: process.env.PATH });
+  const expected = {
+    'status': ['status'],
+    'diff': ['diff', '--no-ext-diff'],
+    'log --oneline': ['log', '--no-ext-diff', '--oneline'],
+    'add probe.mjs': ['add', 'probe.mjs'],
+    'commit -m Fix the range': ['commit', '-m', 'Fix the range'],
+  };
   for (const args of [['status'], ['diff'], ['log', '--oneline'], ['add', 'probe.mjs'], ['commit', '-m', 'Fix the range']]) {
-    assert.deepEqual(await withGit.checkCommand({ command: 'git', args }), { command: 'git', args });
+    assert.deepEqual(await withGit.checkCommand({ command: 'git', args }), {
+      command: 'git',
+      args: expected[args.join(' ')],
+    });
   }
 });
 
@@ -312,6 +322,23 @@ test('shell-refuses-npm-network-flags', async t => {
       );
     }
   }
+  // npm expands unambiguous prefixes; refuse those that are prefixes of refused options.
+  for (const args of [
+    ['--offl=false'],
+    ['--no-offl'],
+    ['--reg=https://example.invalid/'],
+  ]) {
+    await assert.rejects(
+      tools.execute('workspace.shell.execute', { command: 'npm', args: ['test', ...args] }),
+      error => {
+        assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+        assert.equal(error.message, 'That npm option changes the registry, cache or online mode.');
+        assert.notEqual(error.message, NOT_FOUND);
+        return true;
+      },
+      args.join(' '),
+    );
+  }
   await assertNothingRan(root);
 });
 
@@ -345,6 +372,26 @@ test('shell-refuses-node-run', async t => {
   await assertNothingRan(root);
 });
 
+test('shell-refuses-node-inspect', async t => {
+  const { root, tools } = await fixture(t);
+  const flags = ['--inspect', '--inspect-brk', '--inspect-port', '--inspect-wait'];
+  for (const flag of flags) {
+    for (const args of [[flag], [`${flag}=0`]]) {
+      await assert.rejects(
+        tools.execute('workspace.shell.execute', { command: 'node', args: [...args, 'probe.mjs'] }),
+        error => {
+          assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+          assert.equal(error.message, 'That node option evaluates code or loads modules.');
+          assert.notEqual(error.message, NOT_FOUND);
+          return true;
+        },
+        args.join(' '),
+      );
+    }
+  }
+  await assertNothingRan(root);
+});
+
 test('file-tools-refuse-writes-under-dot-git', async t => {
   const { root, tools } = await fixture(t);
   await mkdir(join(root, '.git', 'hooks'), { recursive: true });
@@ -367,6 +414,25 @@ test('file-tools-refuse-writes-under-dot-git', async t => {
     tools.execute('workspace.file.update', { path: '.git/config', oldText: '[core]', newText: '[core]\nfsmonitor = true' }),
     { code: 'WORKSPACE_DOT_GIT_REFUSED' },
   );
+
+  // Resolved-path check: an in-workspace symlink into .git must still refuse.
+  let linked = false;
+  try {
+    await symlink('.git', join(root, 'gitlink'));
+    linked = true;
+  } catch (error) {
+    t.skip(`symlink into .git unavailable: ${error.code ?? error.message}`);
+    return;
+  }
+  assert.equal(linked, true);
+  const before = await readFile(join(root, '.git', 'config'), 'utf8');
+  for (const id of ['workspace.file.write', 'workspace.file.update']) {
+    const args = id === 'workspace.file.write'
+      ? { path: 'gitlink/config', content: 'bad\n' }
+      : { path: 'gitlink/config', oldText: '[core]', newText: '[core]\nhacked = true' };
+    await assert.rejects(tools.execute(id, args), { code: 'WORKSPACE_DOT_GIT_REFUSED' }, id);
+  }
+  assert.equal(await readFile(join(root, '.git', 'config'), 'utf8'), before);
 });
 
 test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
@@ -375,6 +441,7 @@ test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   const plant = "import { writeFileSync } from 'node:fs'; writeFileSync('hook-ran.txt', 'ran');\n";
   await mkdir(join(root, '.git', 'hooks'), { recursive: true });
   await writeFile(join(root, 'fsmonitor.mjs'), plant);
+  await writeFile(join(root, 'diff-external.mjs'), plant);
   // Hook scripts must be executable files; call node so the marker path is portable.
   const hook = process.platform === 'win32'
     ? `node fsmonitor.mjs\n`
@@ -382,10 +449,16 @@ test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   await writeFile(join(root, '.git', 'hooks', 'pre-commit'), hook);
   if (process.platform !== 'win32') await chmod(join(root, '.git', 'hooks', 'pre-commit'), 0o755);
   const fsmonitorCmd = `${process.execPath} ${join(root, 'fsmonitor.mjs')}`;
+  const diffCmd = `${process.execPath} ${join(root, 'diff-external.mjs')}`;
   await writeFile(join(root, '.git', 'config'), [
     '[core]',
     `	fsmonitor = ${fsmonitorCmd}`,
     '	hooksPath = .git/hooks',
+    '[diff]',
+    `	external = ${diffCmd}`,
+    '[user]',
+    '	name = Bloom Test',
+    '	email = test@example.invalid',
     '',
   ].join('\n'));
   // Minimal git repo files so status and commit can run.
@@ -400,6 +473,12 @@ test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   const commit = await tools.execute('workspace.shell.execute', {
     command: 'git', args: ['commit', '-m', 'Add tracked'],
   });
-  assert.ok(commit.exitCode === 0 || commit.exitCode === 1 || commit.exitCode === 128, 'commit ran under the gate');
+  assert.equal(commit.exitCode, 0, `commit stderr: ${commit.stderr ?? ''}`);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+
+  await writeFile(join(root, 'tracked.txt'), 'two\n');
+  const diff = await tools.execute('workspace.shell.execute', { command: 'git', args: ['diff'] });
+  assert.equal(diff.exitCode, 0, `diff output: ${diff.output ?? ''}`);
+  assert.match(diff.output, /two/);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
 });
