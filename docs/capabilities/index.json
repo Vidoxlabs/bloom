@@ -62,23 +62,27 @@
     {
       "id": "CAP-03",
       "role": "touches",
-      "status": "proposed",
-      "claim": "planned",
+      "status": "in-progress",
+      "claim": "specified",
       "spec": "seed/docs/capabilities/CAP-03-typed-tool-input-output.md",
       "slices": [
         {
           "id": "CAP-03.3",
           "title": "Pre-dispatch input validation, single repair turn, and output validation in bloom",
           "milestone": "M2",
-          "status": "proposed"
+          "status": "landed"
         }
       ],
       "toolIds": [],
       "contracts": [
         "docs/architecture.md"
       ],
-      "tests": [],
-      "prs": [],
+      "tests": [
+        "test/coding-loop.test.mjs"
+      ],
+      "prs": [
+        "bloom#5"
+      ],
       "commits": [],
       "adr": [],
       "decision": null,
@@ -107,7 +111,7 @@
           "id": "CAP-04.3",
           "title": "Coding loop integration with workspace tools and finish action",
           "milestone": "M2",
-          "status": "proposed"
+          "status": "landed"
         }
       ],
       "toolIds": [
@@ -123,11 +127,16 @@
         "docs/architecture.md"
       ],
       "tests": [
-        "test/workspace-tools.test.mjs"
+        "test/workspace-tools.test.mjs",
+        "test/coding-loop.test.mjs",
+        "test/shell-gate.test.mjs",
+        "test/model-stream.test.mjs",
+        "test/cli-coding.test.mjs"
       ],
       "prs": [
         "drosera#4",
-        "bloom#4"
+        "bloom#4",
+        "bloom#5"
       ],
       "commits": [],
       "adr": [
