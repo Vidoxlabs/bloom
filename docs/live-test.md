@@ -6,7 +6,7 @@ The endpoint lives only in the private config file described below. Never put it
 
 ## Offline rehearsal
 
-These steps call no model and need no config file.
+These steps call no model and need no config file. Step 1 on a fresh clone needs GitHub access for the exact Seed and Drosera archives. npm can install these pins without a Git executable. The release ZIP already includes both packages and needs no fetch, so start with `npm test` after extracting it.
 
 Run the test suite:
 
@@ -53,7 +53,7 @@ Check the file without sending anything to the server:
 cd bloom && node bin/bloom.mjs doctor
 ```
 
-The Endpoint rule row should read `pass` and name the provider and its locality.
+The Seed pin and Drosera pin rows should show `installed`. `mismatch` means npm's installed metadata does not confirm the exact commit, and `missing` means the package is absent. The Endpoint rule row should read `pass` and name the provider and its locality.
 
 ## Probe
 

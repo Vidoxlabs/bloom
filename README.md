@@ -8,7 +8,9 @@ Give a head agent a brief and watch a team work through it in one group conversa
 
 ## Try it
 
-Download `bloom-VERSION.zip` from the [latest release](https://github.com/Vidoxlabs/bloom/releases/latest) and extract it, or clone this repository. Install Node.js 22.13 or newer and run this command from the project folder in a terminal on macOS, Linux, or Windows. The release ZIP already holds Bloom's one runtime dependency, seed; in a clone, run `npm install` first.
+Install Node.js 22.13 or newer. Download and extract `bloom-VERSION.zip` from the [latest release](https://github.com/Vidoxlabs/bloom/releases/latest), or clone this repository. The release ZIP includes the runtime dependencies and needs no dependency fetch. In a fresh clone, `npm install` downloads the exact Seed and Drosera commit archives from GitHub. The empty-cache check on npm 11 succeeded with no Git executable on PATH. Git is still needed for the sandbox and workspace Git commands.
+
+Run this command from the project folder on macOS, Linux, or Windows.
 
 ```sh
 npm run demo

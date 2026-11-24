@@ -6,6 +6,7 @@ import { probeProvider } from '../probe.mjs';
 import { profileKey, writeProfile } from '../profile-store.mjs';
 import { readTerminalProvider, terminalSelection } from './config.mjs';
 import { selectProviders } from './providers.mjs';
+import { dependencyPinChecks } from './dependency-pins.mjs';
 import { hasColor } from './render/line.mjs';
 
 // With --probe, doctor also asks the configured provider what it supports and saves the profile.
@@ -40,6 +41,7 @@ export async function doctor(directory, values, { stdout, stdin, fetcher = fetch
   }
   const exports = ['validateProvider', 'normalizeGeneration'];
   add('Seed exports', exports.every(name => typeof seed[name] === 'function') ? 'pass' : 'fail', exports.join(', '));
+  checks.push(...dependencyPinChecks());
   let provider = null;
   try {
     provider = readTerminalProvider(directory);

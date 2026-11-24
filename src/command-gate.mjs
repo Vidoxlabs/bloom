@@ -10,19 +10,19 @@ import { cancelled, invalidArgument, isOutside, textArgument } from './workspace
 export const ALLOWED_COMMANDS = Object.freeze(['node', 'npm', 'git']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'cmd', 'powershell', 'pwsh']);
 const GIT_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'add', 'commit']);
-const REFUSED_FLAGS = {
-  node: new Set([
+export const REFUSED_FLAGS = Object.freeze({
+  node: Object.freeze([
     '-e', '--eval', '-p', '--print', '-r', '--require', '--import', '--input-type', '--loader',
     '--experimental-loader', '--run',
-    '--inspect', '--inspect-brk', '--inspect-port', '--inspect-wait',
+    '--inspect', '--inspect-brk', '--inspect-port', '--inspect-wait', '--debug-port', '--inspect-publish-uid',
   ]),
-  npm: new Set([
+  npm: Object.freeze([
     '--prefix', '-C', '-g', '--global', '--location', '--script-shell', '--node-options',
     '--offline', '--no-offline', '--prefer-online', '--registry', '--userconfig', '--globalconfig',
     '--cache', '--proxy', '--https-proxy',
   ]),
-  git: new Set(['-C', '--git-dir', '--work-tree', '-c', '--exec-path']),
-};
+  git: Object.freeze(['-C', '--git-dir', '--work-tree', '-c', '--exec-path', '--ext-diff']),
+});
 const REFUSED_NPM_COMMANDS = new Set(['exec', 'x', 'explore', 'edit']);
 const REFUSED_FLAG_REASON = {
   node: 'That node option evaluates code or loads modules.',
@@ -54,9 +54,19 @@ function flagParts(argument) {
   return { flag: argument, value: null };
 }
 
+// npm accepts single-dash long options and expands their option-name prefixes.
+// Check the canonical name without changing the value or the actual command arguments.
+function normalizeNpmArgument(argument) {
+  const option = /^(-{1,2})([a-z][a-z0-9-]*)(?==|$)/i.exec(argument);
+  if (!option || (option[1] === '-' && option[2].length === 1)) return argument;
+  const long = '--' + option[2].toLowerCase();
+  if (/^-[Cg]/.test(argument) && !npmFlagMatchesRefused(long)) return argument;
+  return long + argument.slice(option[0].length);
+}
+
 function refusedFlag(command, flag) {
   if (!flag) return false;
-  if (REFUSED_FLAGS[command].has(flag)) return true;
+  if (REFUSED_FLAGS[command].includes(flag)) return true;
   // npm expands unambiguous option prefixes; refuse any prefix of a refused long option.
   if (command === 'npm' && npmFlagMatchesRefused(flag)) return true;
   // Node accepts clustered short options such as -pe, so any cluster with e, p or r is refused.
@@ -64,22 +74,14 @@ function refusedFlag(command, flag) {
 }
 
 function npmFlagMatchesRefused(flag) {
-  const lower = flag.toLowerCase();
-  if (REFUSED_FLAGS.npm.has(lower) || NPM_REDIRECT_FLAGS.has(lower)) return true;
-  if (!lower.startsWith('--') || lower.length < 3) return false;
-  for (const refused of REFUSED_FLAGS.npm) {
-    const name = refused.toLowerCase();
-    if (name.startsWith('--') && name.startsWith(lower)) return true;
-  }
-  return false;
+  return flag.startsWith('--') && flag.length >= 3 && REFUSED_FLAGS.npm.some(name => name.startsWith(flag));
 }
 
 function refusedFlagReason(command, flag) {
+  if (command === 'git' && flag === '--ext-diff') return 'That git option enables an external diff program.';
   if (command === 'npm') {
-    const lower = flag.toLowerCase();
     for (const refused of NPM_REDIRECT_FLAGS) {
-      const name = refused.toLowerCase();
-      if (lower === name || (lower.startsWith('--') && name.startsWith(lower))) return NPM_REDIRECT_REASON;
+      if (flag === refused || (flag.startsWith('--') && refused.startsWith(flag))) return NPM_REDIRECT_REASON;
     }
   }
   return REFUSED_FLAG_REASON[command];
@@ -111,7 +113,7 @@ export async function checkCommandRequest(root, args) {
   if (SHELLS.has(command.toLowerCase())) throw refuseCommand('Shells are not allowed commands.');
   if (!ALLOWED_COMMANDS.includes(command)) throw refuseCommand('Only node, npm and git are allowed commands.');
   for (const argument of argv) {
-    const { flag, value } = flagParts(argument);
+    const { flag, value } = flagParts(command === 'npm' ? normalizeNpmArgument(argument) : argument);
     if (refusedFlag(command, flag)) throw refuseCommand(refusedFlagReason(command, flag));
     if (value !== null) await containedArgument(root, value);
   }

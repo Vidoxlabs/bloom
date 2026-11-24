@@ -97,20 +97,24 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `D16` Decided 2026-11-24 in bloom#5: Action format: each model reply holds exactly one fenced json block `{ "tool": "<tool id>", "args": { } }`, parsed strictly with one repair turn, then malformed, and nothing malformed runs? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
 - `D17` Decided 2026-11-24 in bloom#5: Command allowlist: exactly `node`, `npm` and `git`? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
 - `D18` Decided 2026-11-24 in bloom#5: Approvals: write tools always ask, "Allow for session" binds the tool ID plus an arguments digest, and is never offered for `workspace.shell.execute`? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
-- `D19` Decided 2026-11-24 in bloom#5: Should shell commands be able to reach the network in the first live run? Owner's answer, verbatim (2026-11-24): "I accept option A for bloom's coding shell: network not blocked; npm offline; git local-only; risk documented". Confirmed again (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
-- Decided 2026-11-24 in bloom#5: Did “approved continue” authorize a follow-up on #5 for the Windows fixture and resolved-path check, with verified fixes merged down the stack, or should I keep the review freeze in place? Owner's answer, verbatim: "Yes approved follow up".
-- Decided 2026-11-24 in bloom#5: Which author should I use for new Bloom commits? Owner's answer, verbatim: "Use the configured author".
+- `D19` Decided 2026-11-24 in bloom#5: Should shell commands be able to reach the network in the first live run? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "I accept option A for bloom's coding shell: network not blocked; npm offline; git local-only; risk documented". Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- Decided 2026-11-24 in bloom#5: Did “approved continue” authorize a follow-up on #5 for the Windows fixture and resolved-path check, with verified fixes merged down the stack, or should I keep the review freeze in place? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "Yes approved follow up".
+- Decided 2026-11-24 in bloom#5: Which author should I use for new Bloom commits? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "Use the configured author".
 - `D25` Decided 2026-11-24 in bloom#8: Web view in this PR? Yes, recommended. The browser client already renders streamed text, tool rows and approvals through the existing permission route. The new work is server-side: read the endpoint from the private config, open a coding session for the workspace, and add model-call rows. Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
 - `D26` Decided 2026-11-24 in bloom#8: `--api-base` on `npm start`: remove the flag entirely, so the web workspace reads the endpoint only from the private config file (recommended)? The alternative keeps it working but undocumented. Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
 - `D27` Decided 2026-11-24 in bloom#8: Web key: the web workspace uses the same key rule as the terminal, the config's named variable. That drops the `[key variable name]` default. (Recommend yes.) Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
 - `D28` Decided 2026-11-24 in bloom#8: Opening a web coding session: `npm start -- --workspace <sandbox folder>` opens a coding session for that folder when the private config has a provider. This reuses the existing `--workspace` flag. (Recommend yes.) Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Accept all".
-- Decided 2026-11-24 in bloom#8: May I keep every entry from both branches under its existing heading, in stack order, then test and push #8 and #9? Owner's answer, verbatim: "You may assume approval and continue".
-- `D29` Decided 2026-11-24 in bloom#9: Cloud opt-in for AI Studio. How should bloom allow a cloud provider? Owner's answer, verbatim (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
-- `D30` Decided 2026-11-24 in bloom#9: May docs and tests name GEMINI_API_KEY as the example variable? Owner's answer, verbatim (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
-- `D31` Decided 2026-11-24 in bloom#9: Live tests opt in with BLOOM_LIVE=1 and npm run test:live, at most 20 model calls? Owner's answer, verbatim (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
-- `D32` Decided 2026-11-24 in bloom#10: For Bloom autonomy, should I use the proposed local-only `--autonomous` mode with sandbox marking, hard budgets, automatic trace entries, and a stopped turn on tool refusal? Owner's answer, verbatim: "Use the proposed mode".
+- Decided 2026-11-24 in bloom#8: May I keep every entry from both branches under its existing heading, in stack order, then test and push #8 and #9? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "You may assume approval and continue".
+- `D29` Decided 2026-11-24 in bloom#9: Cloud opt-in for AI Studio. How should bloom allow a cloud provider? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- `D30` Decided 2026-11-24 in bloom#9: May docs and tests name GEMINI_API_KEY as the example variable? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- `D31` Decided 2026-11-24 in bloom#9: Live tests opt in with BLOOM_LIVE=1 and npm run test:live, at most 20 model calls? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- `D32` Decided 2026-11-24 in bloom#10: For Bloom autonomy, should I use the proposed local-only `--autonomous` mode with sandbox marking, hard budgets, automatic trace entries, and a stopped turn on tool refusal? Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "Use the proposed mode".
+
+- Decided 2026-11-24 in bloom#10: Should Bloom commit a root npm lockfile and use npm ci for reproducible install metadata? The two current Git pins are already exact, so I recommend keeping them without a lockfile for this change. Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "Keep SHA pins only".
 
 ## Evidence
+
+- The command flag, Git gate and cloud flag tests cover single-dash npm options, external diff refusal, Node debugging flags and the separate cloud opt-in.
 
 - `test/autonomous.test.mjs` exercises both terminal entry points, local marked sandbox admission, budget stops, trace rows and shell refusals with fixture providers.
 
@@ -125,13 +129,15 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Changes
 
+- 2026-11-24. Normalize npm option spellings, reject external diff opt-in and additional Node debugging flags, and align the command documentation.
+
 - 2026-11-24. Add opt-in autonomous terminal coding in local marked sandboxes and record D32.
 
 - 2026-11-24. Cover command refusal before approval, keep approval details as text, and separate command and provider test modules.
 
 - `2026-11-24`: Use native resolved Git metadata paths on Windows and make the command gate fixture portable (CAP-04, bloom#5).
 
-- `2026-11-24`: Harden the command gate (distinct refusal reasons, linked-folder containment, `.git` write refusal, git config overrides, npm network flags, attached short options, `node --run`, allow-only approvals) and record the typed D19 answer (CAP-04, bloom#5).
+- `2026-11-24`: Harden the command gate (distinct refusal reasons, linked-folder containment, `.git` write refusal, git config overrides, npm network flags, attached short options, `node --run`, allow-only approvals) and record the relayed D19 answer (CAP-04, bloom#5).
 - `2026-11-24`: Add cloud opt-in, Gemini OpenAI-compatible probe and error mapping, opt-in live tests, and record D29 to D31 (CAP-16 / CAP-04, bloom#9).
 - `2026-11-24`: Add the live-test kit and the web coding view, read the web endpoint only from the private config, and record D25 to D28 (CAP-04, bloom#8).
 - `2026-11-24`: Add the coding loop, the streamed model client, and the allowlisted command gate, and record the L2 owner decisions (CAP-04, bloom#5).

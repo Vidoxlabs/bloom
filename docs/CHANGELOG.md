@@ -26,6 +26,9 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 
 ### Fixed
 
+- Report installed dependency pins in doctor, including missing packages before runtime startup (CAP-16, bloom#10).
+- Refuse npm single-dash long options, Git external diff opt-in and additional Node debugging options (CAP-04, bloom#10).
+
 - Verify command refusals before approval, reject relative command-search entries and probe redirects, preserve full approval text, and classify named Google authentication errors before generic HTTP errors (CAP-04, bloom#10).
 - Include the new note in the sandbox diff and verify the exact changed paths in the local-provider test (CAP-04, bloom#10).
 

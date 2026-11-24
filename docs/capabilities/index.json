@@ -137,7 +137,8 @@
         "test/live/live-suite.live.mjs",
         "test/git-gate.test.mjs",
         "test/probe-provider.test.mjs",
-        "test/autonomous.test.mjs"
+        "test/autonomous.test.mjs",
+        "test/command-flags.test.mjs"
       ],
       "prs": [
         "drosera#4",
@@ -522,7 +523,8 @@
         "test/doctor-probe.test.mjs",
         "test/cli-coding.test.mjs",
         "test/cloud-gemini.test.mjs",
-        "test/probe-provider.test.mjs"
+        "test/probe-provider.test.mjs",
+        "test/dependency-pins.test.mjs"
       ],
       "prs": [
         "bloom#7",

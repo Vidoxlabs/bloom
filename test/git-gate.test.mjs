@@ -100,4 +100,11 @@ test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   assert.equal(diff.exitCode, 0, `diff output: ${diff.output ?? ''}`);
   assert.match(diff.output, /two/);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  for (const args of [['diff', '--ext-diff'], ['log', '-p', '--ext-diff']]) {
+    const request = { command: 'git', args };
+    const refused = { code: 'WORKSPACE_COMMAND_REFUSED' };
+    await assert.rejects(tools.checkCommand(request), refused);
+    await assert.rejects(tools.execute('workspace.shell.execute', request), refused);
+  }
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
 });

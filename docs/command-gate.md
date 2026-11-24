@@ -14,15 +14,13 @@ Before a command runs outside tests, all of these hold:
    short option such as `-O<path>`. An argument is resolved through the nearest
    existing ancestor and through links, so a new file under a linked folder
    outside the workspace is refused.
-3. Evaluation and redirection are refused: for `node`, `-e`, `--eval`, `-p`,
-   `--print`, `-r`, `--require`, `--import`, `--input-type`, `--loader`,
-   `--experimental-loader`, `--run` and any short option cluster holding `e`,
-   `p` or `r`; for `npm`, `exec`, `x`, `explore`, `edit`, `--prefix`, `-C`,
-   `-g`, `--global`, `--location`, `--script-shell`, `--node-options`,
-   `--offline`, `--no-offline`, `--prefer-online`, `--registry`, `--userconfig`,
-   `--globalconfig`, `--cache`, `--proxy` and `--https-proxy`; for `git`, `-C`,
-   `--git-dir`, `--work-tree`, `-c` and `--exec-path`, with the subcommand limited
-   to `status`, `diff`, `log`, `add` and `commit`.
+3. The gate refuses these option names, including their assigned forms.
+
+- node refuses `-e`, `--eval`, `-p`, `--print`, `-r`, `--require`, `--import`, `--input-type`, `--loader`, `--experimental-loader`, `--run`, `--inspect`, `--inspect-brk`, `--inspect-port`, `--inspect-wait`, `--debug-port`, `--inspect-publish-uid`.
+- npm refuses `--prefix`, `-C`, `-g`, `--global`, `--location`, `--script-shell`, `--node-options`, `--offline`, `--no-offline`, `--prefer-online`, `--registry`, `--userconfig`, `--globalconfig`, `--cache`, `--proxy`, `--https-proxy`.
+- git refuses `-C`, `--git-dir`, `--work-tree`, `-c`, `--exec-path`, `--ext-diff`.
+
+   Node short clusters holding `e`, `p` or `r` are also refused. npm checks long options case-insensitively, including single-dash spellings and prefixes of refused names. Real short flags keep their original spelling. The npm subcommands `exec`, `x`, `explore` and `edit` are refused. Git is limited to `status`, `diff`, `log`, `add` and `commit`.
 4. The command environment is `PATH`, `LANG` and `TERM` from Bloom's own
    environment; a fresh temporary `HOME`, and `USERPROFILE` on Windows, outside
    the workspace and the user's home; `npm_config_offline=true` with npm's
@@ -30,8 +28,8 @@ Before a command runs outside tests, all of these hold:
    `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` and `PAGER=cat`. Every git command
    also forces `core.fsmonitor=false`, an empty `core.hooksPath` under the
    temporary home, and `core.pager=cat` through `GIT_CONFIG_COUNT` overrides,
-   and adds `--no-ext-diff` on `git diff` and `git log` so a planted
-   `diff.external` never runs. If removing the temporary home fails, the
+   and uses the built-in diff by passing `--no-ext-diff` to `git diff` and
+   `git log`. The gate rejects any `--ext-diff` argument before dispatch. If removing the temporary home fails, the
    command result is kept and its trace row says "home cleanup failed".
 5. Every command asks for approval and shows the command and every argument.
    There is no session-wide allow for commands. A call runs only on
@@ -45,7 +43,7 @@ Before a command runs outside tests, all of these hold:
 
 ## Residual risk
 
-Approval of each call is the boundary. `npm test` runs whatever the
+Approvals are the default for commands. Autonomous mode keeps the same command gate. `npm test` runs whatever the
 `package.json` scripts say, and the model may have written those scripts in an
 approved write. Commands can reach the network: npm is set offline (flags that
 change registry, cache or online mode are refused, including unambiguous npm
