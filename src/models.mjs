@@ -1,5 +1,5 @@
 import { BloomError } from './errors.mjs';
-import { endpointRedactor } from './endpoint-privacy.mjs';
+import { endpointRedactor, streamRedactor } from './endpoint-privacy.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -16,7 +16,7 @@ const record = ({ text, finished, model, usage, costUSD }) => typeof text === 's
   ? { text, complete: finished, model, usage, costUSD }
   : { text: '', complete: false, model, usage, costUSD };
 
-async function post(url, body, { headers, signal, fetcher, label }) {
+async function send(url, body, { headers, signal, fetcher, label }) {
   let response;
   try {
     response = await fetcher(url, { method: 'POST', redirect: 'error', signal,
@@ -26,8 +26,77 @@ async function post(url, body, { headers, signal, fetcher, label }) {
     throw new BloomError('PROVIDER_OFFLINE', 'Could not connect to ' + label + '.');
   }
   if (!response.ok) throw new BloomError('PROVIDER_REJECTED', label + ' returned HTTP ' + response.status + '. Check the model, server version and credentials.');
+  return response;
+}
+
+async function post(url, body, options) {
+  const response = await send(url, body, options);
   try { return await response.json(); }
-  catch { throw new BloomError('PROVIDER_RESPONSE', label + ' returned an unreadable response.'); }
+  catch {
+    if (options.signal.aborted) throw options.signal.reason;
+    throw new BloomError('PROVIDER_RESPONSE', options.label + ' returned an unreadable response.');
+  }
+}
+
+// Read a chat-completions event stream. Each delta goes to onDelta as it arrives; the reply is
+// complete only when a choice reports finish_reason "stop", and usage stays null unless a chunk
+// carries it. An abort rejects, so no completed record exists for a stopped call.
+async function stream(url, body, options, onDelta, redact) {
+  const response = await send(url, body, options);
+  const { signal, label } = options;
+  if (!response.body) throw new BloomError('PROVIDER_RESPONSE', label + ' returned an unreadable response.');
+  const decoder = new TextDecoder();
+  const redactor = streamRedactor(redact);
+  const reader = response.body.getReader();
+  let buffer = '';
+  let text = '';
+  let finished = false;
+  let model = null;
+  let usage = null;
+  let cost = null;
+  const emit = piece => {
+    if (piece) {
+      text += piece;
+      onDelta(piece);
+    }
+  };
+  const handle = line => {
+    if (!line.startsWith('data:')) return false;
+    const payload = line.slice(5).trim();
+    if (payload === '[DONE]') return true;
+    let chunk;
+    try { chunk = JSON.parse(payload); }
+    catch { throw new BloomError('PROVIDER_RESPONSE', label + ' returned an unreadable response.'); }
+    if (typeof chunk?.model === 'string') model = chunk.model;
+    if (chunk?.usage && typeof chunk.usage === 'object') {
+      usage = chatUsage(chunk.usage);
+      cost = amount(chunk.usage.cost);
+    }
+    const choice = chunk?.choices?.[0];
+    if (typeof choice?.delta?.content === 'string') emit(redactor.push(choice.delta.content));
+    if (choice?.finish_reason) finished = choice.finish_reason === 'stop';
+    return false;
+  };
+  try {
+    let done = false;
+    while (!done) {
+      const next = await reader.read();
+      if (next.done) break;
+      buffer += decoder.decode(next.value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop();
+      for (const line of lines) if (handle(line)) { done = true; break; }
+    }
+    if (!done && buffer) handle(buffer);
+  } catch (error) {
+    if (signal.aborted) throw signal.reason;
+    throw error instanceof BloomError ? error : new BloomError('PROVIDER_RESPONSE', label + ' stopped streaming before it finished.');
+  } finally {
+    reader.releaseLock?.();
+  }
+  if (signal.aborted) throw signal.reason;
+  emit(redactor.flush());
+  return { text, finished, model, usage, cost };
 }
 
 export function inspectEndpoint(value, { locality, allowInsecureHttp = false } = {}) {
@@ -57,17 +126,22 @@ export function createChatProvider({
   redact ??= endpointRedactor(baseURL);
   return {
     label: terminal ? label : 'Chat completions API', defaultModel,
-    async generate({ system, prompt, model, signal }) {
+    async generate({ system, prompt, model, signal, onDelta }) {
       if (!model) throw new BloomError('MODEL_REQUIRED', 'Choose a model ID for the team.', 400);
       if (terminal && /-cloud$/i.test(model)) {
         throw new BloomError('EGRESS_REFUSED', 'Cloud models are unavailable in the terminal shell.');
       }
-      const data = await post(base + '/chat/completions', { model, messages: [
-        { role: 'system', content: system }, { role: 'user', content: prompt },
-      ], stream: false }, { signal, fetcher, label, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} });
+      const messages = [{ role: 'system', content: system }, { role: 'user', content: prompt }];
+      const options = { signal, fetcher, label, headers: apiKey ? { authorization: 'Bearer ' + apiKey } : {} };
+      if (typeof onDelta === 'function') {
+        const streamed = await stream(base + '/chat/completions', { model, messages, stream: true }, options, onDelta, redact);
+        return record({ text: streamed.text, finished: streamed.finished, model: redact(streamed.model ?? model),
+          usage: streamed.usage, costUSD: streamed.cost });
+      }
+      const data = await post(base + '/chat/completions', { model, messages, stream: false }, options);
       const selected = data?.choices?.[0];
       return record({ text: redact(selected?.message?.content), finished: selected?.finish_reason === 'stop',
-        model: redact(data?.model ?? model), usage: chatUsage(data?.usage ?? {}), costUSD: amount(data?.usage?.cost) });
+        model: redact(data?.model ?? model), usage: data?.usage ? chatUsage(data.usage) : null, costUSD: amount(data?.usage?.cost) });
     },
   };
 }
