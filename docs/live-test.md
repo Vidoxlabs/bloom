@@ -45,7 +45,7 @@ Bloom reads `config.json` from its data directory, `~/.bloom` unless you pass `-
 }
 ```
 
-The provider name, here `lab`, is how Bloom refers to the provider in its output. A server on your private network needs `"locality": "local"`, and a plain HTTP server also needs `"allowInsecureHttp": true`. If your server requires a key, the README's Terminal commands section names the field that holds the name of the environment variable your shell keeps the key in. The key itself never goes in the file. A provider marked cloud is refused.
+The provider name, here `lab`, is how Bloom refers to the provider in its output. A server on your private network needs `"locality": "local"`, and a plain HTTP server also needs `"allowInsecureHttp": true`. If your server requires a key, the README's Terminal commands section names the provider field that holds the name of the environment variable your shell keeps the key in. Put the key only in that variable, never in the file, a flag or the chat. A provider marked `"locality": "cloud"` is refused until a later cloud opt-in lands; that same provider field is how an AI Studio key will be named.
 
 Check the file without sending anything to the server:
 

@@ -84,12 +84,17 @@ function writeConfig(directory, provider = {}) {
 }
 
 test('web-workspace-runs-coding-loop-from-private-config', async t => {
-  const directory = scratch(t, 'bloom-web-');
+  // One after-hook: close the store before deleting the temp tree (Windows EBUSY).
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'bloom-web-')));
   const data = join(directory, 'data');
   writeConfig(data);
   const workspace = copyDemoRepo(join(directory, 'workspace'));
   const web = createWebWorkspace({ dataDirectory: data, workspace, fetcher: streamingFetcher(demoReplies) });
-  t.after(async () => { await web.harness.close(); web.store.close(); });
+  t.after(async () => {
+    await web.harness.close();
+    web.store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   const info = web.harness.info();
   assert.deepEqual(info.adapters.map(adapter => adapter.id), ['coding']);
   assert.ok(!JSON.stringify(info).toLowerCase().includes(marker));
@@ -144,7 +149,8 @@ test('web-coding-view-formats-rows', () => {
 });
 
 const runbook = readFileSync(join(root, 'docs', 'live-test.md'), 'utf8');
-const commands = [...runbook.matchAll(/```bash\n([\s\S]*?)```/g)].flatMap(match => match[1].split('\n'))
+// Accept LF or CRLF so a Windows checkout still finds the bash blocks.
+const commands = [...runbook.matchAll(/```bash\r?\n([\s\S]*?)```/g)].flatMap(match => match[1].split(/\r?\n/))
   .map(line => line.trim()).filter(line => line && !line.startsWith('#'));
 
 test('live-test-runbook-commands-exist', () => {
