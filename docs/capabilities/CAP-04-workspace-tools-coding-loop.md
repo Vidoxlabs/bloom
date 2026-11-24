@@ -67,6 +67,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `reject-is-never-executed`, `allow-session-binds-args-digest`, `headless-never-writes`, `trace-row-per-call-without-file-contents`, `endpoint-marker-never-in-events-or-export`.
 - `shell-refuses-unlisted-command`, `shell-refuses-absolute-and-parent-args`, `shell-refuses-symlinked-outside-arg`, `shell-refuses-eval-flags`, `shell-home-is-isolated`, `shell-home-cleanup-failure-flagged`, `command-access-has-one-production-caller`.
 - `stream-usage-null-when-unreported`, `abort-returns-no-completed-record`.
+- `make-sandbox-creates-baseline-commit`, `make-sandbox-refuses-non-empty-or-inside-clone`, `web-workspace-runs-coding-loop-from-private-config`, `web-workspace-refuses-cloud-and-has-no-endpoint-option`, `web-coding-view-formats-rows`, `live-test-runbook-commands-exist`, `live-test-runbook-keeps-endpoint-private`.
 
 ## Slices
 
@@ -95,15 +96,21 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `D17` Decided 2026-11-24 in bloom#5: Command allowlist: exactly `node`, `npm` and `git`? Owner's answer, verbatim: "Assume recommended and continue".
 - `D18` Decided 2026-11-24 in bloom#5: Approvals: write tools always ask, "Allow for session" binds the tool ID plus an arguments digest, and is never offered for `workspace.shell.execute`? Owner's answer, verbatim: "Assume recommended and continue".
 - `D19` Decided 2026-11-24 in bloom#5: Should shell commands be able to reach the network in the first live run? Owner's answer, verbatim: "Assume recommended and continue". This approves A: not blocked, npm offline, git limited to local subcommands, and the residual risk says so.
+- `D25` Decided 2026-11-24 in bloom#8: Web view in this PR? Yes, recommended. The browser client already renders streamed text, tool rows and approvals through the existing permission route. The new work is server-side: read the endpoint from the private config, open a coding session for the workspace, and add model-call rows. Owner's answer, verbatim: "Accept all".
+- `D26` Decided 2026-11-24 in bloom#8: `--api-base` on `npm start`: remove the flag entirely, so the web workspace reads the endpoint only from the private config file (recommended)? The alternative keeps it working but undocumented. Owner's answer, verbatim: "Accept all".
+- `D27` Decided 2026-11-24 in bloom#8: Web key: the web workspace uses the same key rule as the terminal, the config's named variable. That drops the `BLOOM_API_KEY` default. (Recommend yes.) Owner's answer, verbatim: "Accept all".
+- `D28` Decided 2026-11-24 in bloom#8: Opening a web coding session: `npm start -- --workspace <sandbox folder>` opens a coding session for that folder when the private config has a provider. This reuses the existing `--workspace` flag. (Recommend yes.) Owner's answer, verbatim: "Accept all".
 
 ## Evidence
 
+- Live-test kit (bloom#8): `scripts/make-sandbox.mjs` makes the throwaway sandbox, `src/web.mjs` builds the web workspace from the private config only, `public/coding-view.js` formats the browser's model and tool rows, and `docs/live-test.md` is the runbook. `test/live-test-kit.test.mjs` covers each, and checks that every command the runbook names exists.
 - `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
 - `CAP-04.3`: `test/coding-loop.test.mjs` runs the loop over a synthetic project with a scripted provider and zero network calls, writes the byte-stable session `test/fixtures/demo-session.jsonl` through the export path, and covers the repair budget, admission, approvals, headless refusal, trace rows and endpoint masking. `test/shell-gate.test.mjs` covers the command gate, `test/model-stream.test.mjs` the streamed client, and `test/cli-coding.test.mjs` the headless terminal path.
 - `CAP-04.2`: `test/workspace-tools.test.mjs` exercises file path containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, the disabled-by-default command gate, command environment, and timeout.
 
 ## Changes
 
+- `2026-11-24`: Add the live-test kit and the web coding view, read the web endpoint only from the private config, and record D25 to D28 (CAP-04, bloom#8).
 - `2026-11-24`: Add the coding loop, the streamed model client, and the allowlisted command gate, and record the L2 owner decisions (CAP-04, bloom#5).
 - `2026-11-24`: Record the D12 tool face and D15 dependency decisions and add workspace executors (CAP-04, bloom#4).
 - `2026-11-24`: Align root canonicalization with the native resolver used for tool paths (CAP-04, bloom#4).

@@ -131,12 +131,14 @@
         "test/coding-loop.test.mjs",
         "test/shell-gate.test.mjs",
         "test/model-stream.test.mjs",
-        "test/cli-coding.test.mjs"
+        "test/cli-coding.test.mjs",
+        "test/live-test-kit.test.mjs"
       ],
       "prs": [
         "drosera#4",
         "bloom#4",
-        "bloom#5"
+        "bloom#5",
+        "bloom#8"
       ],
       "commits": [],
       "adr": [

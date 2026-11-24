@@ -198,6 +198,7 @@ The portable suite exercises the budgets, group handoffs, review hold, restart, 
 
 ## Changes
 
+- 2026-11-24: Read the web workspace's endpoint only from the private config and show coding rows and approval detail in the browser (CAP-04, bloom#8).
 - 2026-11-24: Add `bloom doctor --probe` and drive the coding loop's budget and streaming from the saved model profile (CAP-16, bloom#7).
 - 2026-11-24: Add the coding loop with strict actions, one shared repair turn, per-call approvals, streamed text, a trace row per call, and the allowlisted command gate (CAP-04, bloom#5).
 - 2026-11-24: Add workspace executors with contained file paths, a disabled-by-default command executor, and bounded output records behind the internal tool interface (CAP-04, bloom#4).
