@@ -96,14 +96,20 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 - `D17` Decided 2026-11-24 in bloom#5: Command allowlist: exactly `node`, `npm` and `git`? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
 - `D18` Decided 2026-11-24 in bloom#5: Approvals: write tools always ask, "Allow for session" binds the tool ID plus an arguments digest, and is never offered for `workspace.shell.execute`? Owner's answer, relayed from the Codex session (not yet confirmed in the owner's own typed words): "Assume recommended and continue".
 - `D19` Decided 2026-11-24 in bloom#5: Should shell commands be able to reach the network in the first live run? Owner's answer, verbatim (2026-11-24): "I accept option A for bloom's coding shell: network not blocked; npm offline; git local-only; risk documented". Confirmed again (2026-11-24): "I confirm D29 A, D30 yes, D31 yes, D19 A".
+- Decided 2026-11-24 in bloom#5: Did “approved continue” authorize a follow-up on #5 for the Windows fixture and resolved-path check, with verified fixes merged down the stack, or should I keep the review freeze in place? Owner's answer, verbatim: "Yes approved follow up".
+- Decided 2026-11-24 in bloom#5: Which author should I use for new Bloom commits? Owner's answer, verbatim: "Use the configured author".
 
 ## Evidence
+
+- `CAP-04.3`: `test/shell-gate.test.mjs` checks Git metadata refusal and keeps ordinary directories writable. Its Git fixture reads back the repository settings and requires status, add, commit, and diff to succeed without running the configured programs.
 
 - `CAP-04.1`: drosera#4 exports the workspace tool pack and coding recipe. Bloom pins its head pending upstream merge.
 - `CAP-04.3`: `test/coding-loop.test.mjs` runs the loop over a synthetic project with a scripted provider and zero network calls, writes the byte-stable session `test/fixtures/demo-session.jsonl` through the export path, and covers the repair budget, admission, approvals, headless refusal, trace rows and endpoint masking. `test/shell-gate.test.mjs` covers the command gate, `test/model-stream.test.mjs` the streamed client, and `test/cli-coding.test.mjs` the headless terminal path.
 - `CAP-04.2`: `test/workspace-tools.test.mjs` exercises file path containment, canonical root revalidation, concurrent writes, exact matching, capped output and digests, the disabled-by-default command gate, command environment, and timeout.
 
 ## Changes
+
+- `2026-11-24`: Use native resolved Git metadata paths on Windows and make the command gate fixture portable (CAP-04, bloom#5).
 
 - `2026-11-24`: Harden the command gate (distinct refusal reasons, linked-folder containment, `.git` write refusal, git config overrides, npm network flags, attached short options, `node --run`, allow-only approvals) and record the typed D19 answer (CAP-04, bloom#5).
 - `2026-11-24`: Add the coding loop, the streamed model client, and the allowlisted command gate, and record the L2 owner decisions (CAP-04, bloom#5).

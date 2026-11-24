@@ -147,8 +147,9 @@ Before a command runs outside tests, all of these hold:
 6. File tools refuse any write or update under `.git/` at any depth: a
    case-insensitive string check on path segments before any existence or
    realpath lookup, then a second check on the resolved target that treats
-   trailing dots and spaces on a segment as insignificant and also refuses
-   Windows 8.3 short names such as `GIT~1` that resolve to the `.git` folder.
+   trailing dots and spaces on a segment as insignificant. On Windows, the
+   check also compares native resolved paths to refuse targets inside the
+   actual `.git` directory, including targets reached by a short alias.
 
 ### Residual risk
 
@@ -215,6 +216,8 @@ Omit `--check` to update the used properties. A fresh Bloom checkout runs from t
 The portable suite exercises the budgets, group handoffs, review hold, restart, deletion fence, file-integrity checks, the chat-completions adapter, the provider seam, the coding-session harness against a scripted runtime, the command gate, the provider probe against a fake server, and the coding loop against a scripted provider and a synthetic project with zero network calls. The hosted checks start a real Bloom listener on Windows, macOS and Linux. A Chromium journey opens a reviewed document and tests a narrow viewport. These checks use synthetic briefs and source files. A hosted, billed generation and a graphical desktop session have distinct verification requirements.
 
 ## Changes
+
+- 2026-11-24: Compare resolved Git metadata paths on Windows and verify the Git command fixture with portable repository configuration (CAP-04, bloom#5).
 
 - 2026-11-24: Harden the command gate and file tools for the coding loop (CAP-04, bloom#5).
 - 2026-11-24: Add `bloom doctor --probe` and drive the coding loop's budget and streaming from the saved model profile (CAP-16, bloom#7).
