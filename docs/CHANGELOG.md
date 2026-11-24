@@ -6,6 +6,8 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 
 ### Added
 
+- Collect bounded workspace file metadata and read-only Git change context for the planned context packer (CAP-05, bloom#12).
+
 - Run the deterministic coding smoke dataset with `bloom eval --smoke` and emit case and report events (CAP-14, bloom#11).
 
 - Terminal shell with private endpoint configuration (M1, bloom#1).
