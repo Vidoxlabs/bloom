@@ -17,7 +17,8 @@ test('hidden-off-by-default', async t => {
   const root = fixture(t);
   writeFileSync(join(root, '.hidden'), 'fixture');
   writeFileSync(join(root, 'notes.txt'), 'visible');
-  assert.deepEqual(walkWorkspace(root).files.map(file => file.path), ['notes.txt']);
+  const found = walkWorkspace(root);
+  assert.deepEqual(found.files.map(file => file.path), ['notes.txt'], JSON.stringify(found.unknown));
   assert.deepEqual(walkWorkspace(root).omitted, [{ path: '.hidden', reason: 'hidden' }]);
   assert.deepEqual(walkWorkspace(root, { includeHidden: true }).files.map(file => file.path), ['.hidden', 'notes.txt']);
 });
@@ -37,7 +38,7 @@ test('binary-omitted-with-reason', async t => {
   writeFileSync(join(root, 'fixture.bin'), Buffer.from([65, 0, 66]));
   const found = walkWorkspace(root);
   assert.deepEqual(found.files, []);
-  assert.deepEqual(found.omitted, [{ path: 'fixture.bin', reason: 'binary' }]);
+  assert.deepEqual(found.omitted, [{ path: 'fixture.bin', reason: 'binary' }], JSON.stringify(found.unknown));
 });
 
 test('absolute-paths-never-rendered', async t => {
@@ -93,7 +94,7 @@ test('git-context-reports-relative-changes-and-commit-identities', async t => {
   const range = join(root, 'src', 'range.mjs');
   writeFileSync(range, 'fixture change\n');
   const context = readGitContext(root);
-  assert.equal(context.status, 'known');
+  assert.equal(context.status, 'known', context.reason);
   assert.deepEqual(context.diff, [{ status: 'M', path: 'src/range.mjs' }]);
   assert.deepEqual(context.log, [sandboxGit(root, 'rev-parse', 'HEAD').stdout.trim()]);
   assert.equal(JSON.stringify(context).includes(root), false);

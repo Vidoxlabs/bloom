@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { devNull } from 'node:os';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { contextPath, deniedContextPath } from './workspace-context-files.mjs';
 
 const unknown = reason => ({ status: 'unknown', reason });
@@ -10,10 +12,10 @@ export function readGitContext(workspace, { git = 'git', execute = spawnSync, fr
   const refs = from === undefined && to === undefined ? [] : [from, to];
   if (refs.some(ref => !refName(ref))) return unknown('invalid-ref');
   const config = ['--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
-  const environment = {
-    PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull, GIT_OPTIONAL_LOCKS: '0',
-    GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat',
-  };
+  let profile;
+  const environment = { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0',
+    GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat' };
+  if (process.platform === 'win32') environment.SystemRoot = process.env.SystemRoot;
   const call = args => execute(git, [...config, ...args], {
     cwd: workspace, env: environment, encoding: 'utf8', windowsHide: true, timeout: 5_000, maxBuffer: 131_072,
   });
@@ -25,6 +27,11 @@ export function readGitContext(workspace, { git = 'git', execute = spawnSync, fr
     return null;
   };
   try {
+    profile = mkdtempSync(join(tmpdir(), 'bloom-git-context-'));
+    environment.HOME = profile;
+    environment.USERPROFILE = profile;
+    environment.GIT_CONFIG_GLOBAL = join(profile, 'config');
+    writeFileSync(environment.GIT_CONFIG_GLOBAL, '');
     const prefix = call(['rev-parse', '--show-prefix']);
     const prefixError = errorReason(prefix);
     if (prefixError) return unknown(prefixError);
@@ -49,5 +56,7 @@ export function readGitContext(workspace, { git = 'git', execute = spawnSync, fr
     return { status: 'known', diff, log };
   } catch {
     return unknown('git-failed');
+  } finally {
+    if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
   }
 }
