@@ -1,0 +1,2 @@
+# Keep fixtures, docs and sources as LF so Windows checkouts match Unix bytes.
+* text=auto eol=lf
