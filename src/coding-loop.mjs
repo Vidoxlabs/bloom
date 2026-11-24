@@ -269,7 +269,7 @@ export function createCodingRuntime({
             ...(toolId === SHELL ? { command: args.command, args: [...(args.args ?? [])] } : {}),
           });
           if (signal.aborted || choice === null) return { stopReason: 'cancelled' };
-          if (choice === 'reject') {
+          if (choice !== 'allow-once' && choice !== 'allow-session') {
             finishRow('denied', { durationMs: elapsed(toolStarted), approval: 'denied' });
             steps.push({ reply, observation: DENIED });
             repairs = 0;

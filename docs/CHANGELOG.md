@@ -14,6 +14,10 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 - Pre-dispatch argument checks and output checks sharing one repair turn (CAP-03, bloom#5).
 - `bloom doctor --probe` model profile capture, with the coding loop's budget and streaming taken from the saved profile (CAP-16, bloom#7).
 
+### Changed
+
+- Harden the command gate: distinct refusal reasons, linked-folder argument containment, `.git` write refusal, git config overrides, npm network-flag refusal, attached short-option paths, `node --run` refusal, and allow-only approvals (CAP-04, bloom#5).
+
 ### Fixed
 
 - Close the coding-loop test store before deleting its temp tree, and keep fixtures as LF, so Windows CI no longer fails on EBUSY unlinks or CRLF session exports (CAP-04, bloom#5).
