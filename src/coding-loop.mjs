@@ -122,13 +122,26 @@ function observationText(toolId, result) {
   return head(result.output, OBSERVATION_CHARS) + note;
 }
 
-function promptBudget(profile) {
-  const context = profile?.contextLength;
-  if (context && context.source !== 'unknown' && Number.isSafeInteger(context.value)) {
+const known = slot => slot && slot.source !== 'unknown' ? slot : null;
+
+// Pick the loop's prompt settings from a model profile, using only reported or probed values.
+// The action format stays the fenced json block (D16) whatever the profile says, and an unknown
+// slot falls back to the default rather than a guess.
+export function codingConfig(profile) {
+  const context = known(profile?.contextLength);
+  const streaming = known(profile?.streaming);
+  const tools = known(profile?.toolCalling);
+  const sized = context && Number.isSafeInteger(context.value);
+  return {
+    promptStyle: 'fenced-json',
     // About three characters a token, keeping a quarter of the window for the reply.
-    return Math.max(4_000, Math.floor(context.value * 3 * 0.75));
-  }
-  return DEFAULT_PROMPT_CHARS;
+    promptChars: sized ? Math.max(4_000, Math.floor(context.value * 3 * 0.75)) : DEFAULT_PROMPT_CHARS,
+    budgetSource: sized ? context.source : 'default',
+    streaming: streaming ? streaming.value !== false : true,
+    streamingSource: streaming ? streaming.source : 'unknown',
+    constrainedOutput: false,
+    toolCalling: tools?.value === true ? tools.source : 'unknown',
+  };
 }
 
 function buildPrompt(task, earlier, steps, budget) {
@@ -164,8 +177,9 @@ export function createCodingRuntime({
   const admitted = new Set(allowedTools);
   const faces = workspaceToolPack.faces.filter(face => admitted.has(face.id));
   const system = systemPrompt(faces, headless);
-  const budget = promptBudget(profile);
-  const streaming = profile?.streaming?.source === 'unknown' || profile?.streaming?.value !== false;
+  const config = Object.freeze(codingConfig(profile));
+  const budget = config.promptChars;
+  const streaming = config.streaming;
   const sessions = new Map();
 
   async function run({ workspace, nativeId, model, prompt: task, signal }, hooks) {
@@ -315,6 +329,7 @@ export function createCodingRuntime({
   return {
     id: CODING_RUNTIME_ID,
     label,
+    config,
     get provider() { return adopted; },
     set provider(value) { adopted = adoptProvider(value); },
     run,

@@ -35,10 +35,11 @@ export function readTerminalProvider(directory) {
   catch { throw invalid('The provider URL does not meet the endpoint rule.'); }
   const label = 'provider "' + name + '" (' + endpoint.description + ')';
   const { baseURL, locality, allowInsecureHttp, apiKeyEnv } = provider;
-  return { baseURL, locality, allowInsecureHttp, apiKeyEnv, ...endpoint, label, models: config.models };
+  return { name, baseURL, locality, allowInsecureHttp, apiKeyEnv, ...endpoint, label, models: config.models };
 }
 
-export function terminalModel(provider, requested) {
+// The alias a run uses and the backend model it names.
+export function terminalSelection(provider, requested) {
   if (!record(provider.models) || !Array.isArray(provider.models.aliases)) {
     throw invalid('Configure model aliases in config.json.');
   }
@@ -47,5 +48,5 @@ export function terminalModel(provider, requested) {
   catch { throw invalid('Check the model aliases in config.json.'); }
   const selected = resolveModel(table, requested ?? provider.models.default);
   if (!selected.resolved) throw invalid('Choose a configured model alias with --model or models.default.');
-  return selected.backendModel;
+  return { alias: requested ?? provider.models.default, backendModel: selected.backendModel };
 }

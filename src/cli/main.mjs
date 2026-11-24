@@ -6,7 +6,8 @@ import { dataPath } from '../data-dir.mjs';
 import { BloomError } from '../errors.mjs';
 import { Harness, workspacePath } from '../harness.mjs';
 import { Store } from '../store.mjs';
-import { readTerminalProvider, terminalModel } from './config.mjs';
+import { readProfile, profileKey } from '../profile-store.mjs';
+import { readTerminalProvider, terminalSelection } from './config.mjs';
 import { doctor } from './doctor.mjs';
 import { selectProviders } from './providers.mjs';
 import { lineRenderer } from './render/line.mjs';
@@ -22,7 +23,7 @@ const sharedRun = { model: string, workspace: string, demo: flag };
 const commands = {
   chat: { ...sharedRun, team: string },
   run: { ...sharedRun, headless: flag, json: flag, 'max-calls': string, 'token-limit': string, 'approve-policy': string, 'output-last-message': string },
-  doctor: { json: flag },
+  doctor: { json: flag, probe: flag },
   sessions: { json: flag, jsonl: flag, out: string },
   replay: { json: flag, step: flag },
   memory: { team: string, text: string, confirm: flag },
@@ -30,7 +31,7 @@ const commands = {
 const help = {
   chat: 'bloom chat [--team NAME] [--model ALIAS] [--workspace PATH] [--demo]  (--workspace without --team runs the coding loop)',
   run: 'bloom run --headless (PROMPT | -) [--json] [--max-calls N] [--token-limit N] [--approve-policy deny|allow-read] [--output-last-message FILE] [--model ALIAS] [--workspace PATH] [--demo]',
-  doctor: 'bloom doctor [--json]',
+  doctor: 'bloom doctor [--json] [--probe]  (--probe asks the configured provider what it supports and saves its profile)',
   sessions: 'bloom sessions list [--json] | show ID [--json] | export ID --jsonl [--out FILE]',
   replay: 'bloom replay FILE [--json] [--step]',
   memory: 'bloom memory list --team NAME | keep ID | correct ID --text TEXT | forget ID --confirm',
@@ -148,12 +149,15 @@ async function runCommand(action, args, values) {
       : completion(runResult('failed', 'PROVIDER_UNCONFIGURED'),
         'Set a provider in config.json under --data-dir, or choose --demo.', values.json);
   }
-  const model = provider ? terminalModel(provider, values.model) : values.model;
+  const selection = provider ? terminalSelection(provider, values.model) : null;
+  const model = selection ? selection.backendModel : values.model;
+  // A profile saved by doctor --probe sets the coding loop's budgets; without one, defaults apply.
+  const profile = selection ? readProfile(directory, profileKey(provider.name, selection.alias)) : null;
   if (provider && /-cloud$/i.test(model)) {
     return completion(runResult('refused', 'EGRESS_REFUSED'), cloudRefusal(), values.json);
   }
   const workspace = values.workspace ? workspacePath(resolve(values.workspace)) : '';
-  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless }, workspace);
+  openHarness({ ...provider, demo: values.demo, model, terminal: true, headless, profile }, workspace);
   // A workspace without a team name opens the coding loop in that folder.
   const coding = !values.demo && workspace && !values.team;
   const session = values.demo ? harness.createSession({ model })
