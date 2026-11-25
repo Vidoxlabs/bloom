@@ -1,3 +1,5 @@
+<!-- Managed file. Propose changes by pull request; they are carried into the shared templates. hash: fbf10bd368b1a8d6 -->
+
 # Bloom workspace
 
 Bloom is the public team workspace. A person runs it locally, gives a head agent a task, and reads the group conversation, the shared desktop, and the notes. This repository is the application. It is not the harness foundation, the memory fabric, retrieval, the admission loop, the tooling packs, or the test lattice.
