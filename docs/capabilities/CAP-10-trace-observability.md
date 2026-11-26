@@ -82,7 +82,7 @@ None. This capability introduces no tool IDs.
 
 ## Open owner decisions
 
-- `D12` (pending owner ruling): renderer ruling without a third-party TUI library, governing terminal view formatting and planned for `docs/adr/0001-terminal-renderer.md`.
+- `D12c` (pending owner ruling; default taken, awaiting owner): renderer ruling without a third-party TUI library, governing terminal view formatting and planned for `docs/adr/0001-terminal-renderer.md`.
 
 ## Evidence
 
@@ -90,5 +90,6 @@ None. This capability introduces no tool IDs.
 
 ## Changes
 
+- `2026-11-26`: Refer to the renderer question as `D12c`, after the hub split `D12` into three questions, and note that its default is taken while it awaits the owner.
 - `2026-11-23`: Added `M4` slice milestones across `CAP-10.1`..`CAP-10.3` and aligned `D12` ADR status reference.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.

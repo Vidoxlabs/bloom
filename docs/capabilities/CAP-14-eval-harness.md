@@ -80,7 +80,7 @@ Bloom needs repeatable, deterministic evaluation over coding and team workflows 
 
 ## Open owner decisions
 
-- Decided 2026-11-24 in bloom#16: Should the scripted and pure-function model doubles move to Seed in a later draft PR? I recommend proving them in Bloom first, then upstreaming them. Owner's answer, relayed (owner typed in code-agent chat, not seen by reviewers): "Upstream them later".
+- Relayed (unconfirmed), 2026-11-24, in bloom#16: Should the scripted and pure-function model doubles move to Seed in a later draft PR? I recommend proving them in Bloom first, then upstreaming them. Owner's answer, relayed and not yet confirmed in the owner's own typed words: "Upstream them later". Until the owner confirms, the doubles stay in Bloom.
 - Baseline report storage path and full-suite dataset curation criteria for `M8` (`CAP-14.3`) remain open for owner guidance; `CAP-14.1` and `CAP-14.2` require no blocking decision.
 
 ## Evidence
@@ -89,6 +89,7 @@ Bloom needs repeatable, deterministic evaluation over coding and team workflows 
 
 ## Changes
 
+- 2026-11-26. Label the model-doubles answer as relayed and unconfirmed (CAP-14).
 - 2026-11-24. Add the offline smoke command, six deterministic assertions and case/report events (CAP-14, bloom#16).
 - `2026-11-23`: Added explicit `M5` (`CAP-14.1`, `CAP-14.2`) and `M8` (`CAP-14.3`, `CAP-14.4`) slice milestones.
 - `2026-11-23`: Initial capability specification created in Phase 0 timeline scaffold.
