@@ -36,6 +36,72 @@ const REFUSED_FLAGS = {
   ]),
   git: new Set(['-C', '--git-dir', '--work-tree', '-c', '--exec-path']),
 };
+// Node options that write a file, or read options from a file that could name one. Node also
+// accepts underscores for dashes, so a flag is compared with its underscores replaced.
+const NODE_WRITE_FLAGS = new Set([
+  '--redirect-warnings', '--diagnostic-dir', '--report-dir', '--report-directory', '--report-filename',
+  '--cpu-prof-dir', '--cpu-prof-name', '--heap-prof-dir', '--heap-prof-name', '--logfile',
+  '--trace-event-file-pattern', '--test-reporter-destination', '--localstorage-file', '--snapshot-blob',
+  '--build-snapshot', '--build-snapshot-config', '--experimental-sea-config', '--env-file', '--env-file-if-exists',
+  '--experimental-config-file', '--experimental-default-config-file',
+]);
+const NODE_WRITE_REASON = 'That node option writes files or reads options from a file.';
+// Each admitted git subcommand lists the options it accepts; anything else is refused, including
+// an abbreviation git would expand. A long option is 'flag' (no value), 'value' (needs the attached
+// --name=value form) or 'optional'. A short option is 'flag', 'value' (the rest of the argument or
+// the next one) or 'optional' (attached only). `cluster` allows -ab groups, as git's option parser does.
+const GIT_OPTIONS = {
+  status: {
+    cluster: true,
+    long: {
+      '--short': 'flag', '--branch': 'flag', '--porcelain': 'optional', '--long': 'flag', '--verbose': 'flag',
+      '--untracked-files': 'optional', '--ignored': 'optional', '--ahead-behind': 'flag', '--no-ahead-behind': 'flag',
+      '--show-stash': 'flag', '--renames': 'flag', '--no-renames': 'flag',
+    },
+    short: { s: 'flag', b: 'flag', v: 'flag', z: 'flag', u: 'optional' },
+  },
+  diff: {
+    long: {
+      '--cached': 'flag', '--staged': 'flag', '--stat': 'optional', '--numstat': 'flag', '--shortstat': 'flag',
+      '--name-only': 'flag', '--name-status': 'flag', '--summary': 'flag', '--patch': 'flag', '--raw': 'flag',
+      '--color': 'optional', '--no-color': 'flag', '--word-diff': 'optional', '--minimal': 'flag', '--patience': 'flag',
+      '--histogram': 'flag', '--ignore-all-space': 'flag', '--ignore-space-change': 'flag',
+      '--ignore-space-at-eol': 'flag', '--ignore-blank-lines': 'flag', '--check': 'flag', '--exit-code': 'flag',
+      '--quiet': 'flag', '--find-renames': 'optional', '--no-renames': 'flag', '--text': 'flag',
+      '--no-ext-diff': 'flag', '--merge-base': 'flag', '--unified': 'value', '--diff-filter': 'value',
+      '--relative': 'optional',
+    },
+    short: { p: 'flag', u: 'flag', w: 'flag', b: 'flag', R: 'flag', z: 'flag', a: 'flag', M: 'optional', U: 'optional' },
+  },
+  log: {
+    numeric: true,
+    long: {
+      '--oneline': 'flag', '--graph': 'flag', '--all': 'flag', '--reverse': 'flag', '--stat': 'optional',
+      '--numstat': 'flag', '--shortstat': 'flag', '--name-only': 'flag', '--name-status': 'flag', '--summary': 'flag',
+      '--patch': 'flag', '--no-patch': 'flag', '--decorate': 'optional', '--no-decorate': 'flag',
+      '--abbrev-commit': 'flag', '--color': 'optional', '--no-color': 'flag', '--first-parent': 'flag',
+      '--no-merges': 'flag', '--merges': 'flag', '--follow': 'flag', '--topo-order': 'flag', '--date-order': 'flag',
+      '--regexp-ignore-case': 'flag', '--all-match': 'flag', '--no-renames': 'flag', '--no-ext-diff': 'flag',
+      '--format': 'value', '--pretty': 'optional', '--max-count': 'value', '--skip': 'value', '--since': 'value',
+      '--until': 'value', '--after': 'value', '--before': 'value', '--author': 'value', '--committer': 'value',
+      '--grep': 'value', '--date': 'value', '--unified': 'value', '--diff-filter': 'value',
+    },
+    short: { p: 'flag', u: 'flag', i: 'flag', n: 'value', U: 'optional' },
+  },
+  add: {
+    cluster: true,
+    long: { '--all': 'flag', '--update': 'flag', '--intent-to-add': 'flag', '--verbose': 'flag', '--dry-run': 'flag' },
+    short: { A: 'flag', u: 'flag', N: 'flag', v: 'flag', n: 'flag' },
+  },
+  commit: {
+    cluster: true,
+    long: {
+      '--message': 'value', '--all': 'flag', '--quiet': 'flag', '--allow-empty': 'flag', '--no-verify': 'flag',
+      '--dry-run': 'flag', '--signoff': 'flag', '--no-gpg-sign': 'flag', '--author': 'value', '--date': 'value',
+    },
+    short: { m: 'value', a: 'flag', q: 'flag', s: 'flag', n: 'flag' },
+  },
+};
 const REFUSED_NPM_COMMANDS = new Set(['exec', 'x', 'explore', 'edit']);
 const REFUSED_FLAG_REASON = {
   node: 'That node option evaluates code or loads modules.',
@@ -252,6 +318,7 @@ function flagParts(argument) {
 function refusedFlag(command, flag) {
   if (!flag) return false;
   if (REFUSED_FLAGS[command].has(flag)) return true;
+  if (command === 'node' && NODE_WRITE_FLAGS.has(flag.replaceAll('_', '-'))) return true;
   // npm expands unambiguous option prefixes; refuse any prefix of a refused long option.
   if (command === 'npm' && npmFlagMatchesRefused(flag)) return true;
   // Node accepts clustered short options such as -pe, so any cluster with e, p or r is refused.
@@ -270,6 +337,7 @@ function npmFlagMatchesRefused(flag) {
 }
 
 function refusedFlagReason(command, flag) {
+  if (command === 'node' && NODE_WRITE_FLAGS.has(flag.replaceAll('_', '-'))) return NODE_WRITE_REASON;
   if (command === 'npm') {
     const lower = flag.toLowerCase();
     for (const refused of NPM_REDIRECT_FLAGS) {
@@ -315,6 +383,62 @@ async function underDotGitTarget(root, target) {
   }
 }
 
+// A command argument that names .git: any path or `=` segment, read lexically and again after
+// resolving the nearest existing ancestor, so a link into .git is caught as well.
+async function argumentNamesDotGit(root, value) {
+  if (!value) return false;
+  if (value.split(/[\\/=]/).some(part => part.replace(/[. ]+$/g, '').toLowerCase() === '.git')) return true;
+  const tail = [];
+  for (let probe = resolve(root, value); ; probe = dirname(probe)) {
+    let resolved;
+    try { resolved = await realpath(probe); }
+    catch {
+      if (dirname(probe) === probe) return false;
+      tail.unshift(basename(probe));
+      continue;
+    }
+    return underDotGitTarget(root, join(resolved, ...tail));
+  }
+}
+
+// Check git options against the subcommand's list and return the values attached to them.
+function gitOptionValues(argv) {
+  const [subcommand, ...rest] = argv;
+  const policy = GIT_OPTIONS[subcommand];
+  const refuse = () => refuseCommand(`That option is not allowed for git ${subcommand}.`);
+  const values = [];
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index];
+    if (argument === '--') break;
+    if (!argument.startsWith('-')) continue;
+    // A separate value must not look like an option, so no option hides behind another one.
+    const needsNext = () => {
+      const next = rest[index + 1];
+      if (next === undefined || next.startsWith('-')) throw refuse();
+    };
+    if (argument.startsWith('--')) {
+      const split = argument.indexOf('=');
+      const name = split === -1 ? argument : argument.slice(0, split);
+      const kind = Object.hasOwn(policy.long, name) ? policy.long[name] : null;
+      if (!kind || (kind === 'flag' && split !== -1) || (kind === 'value' && split === -1)) throw refuse();
+      if (split !== -1) values.push(argument.slice(split + 1));
+      continue;
+    }
+    if (policy.numeric && /^-\d+$/.test(argument)) continue;
+    if (argument === '-') throw refuse();
+    for (let at = 1; at < argument.length; at += 1) {
+      const kind = Object.hasOwn(policy.short, argument[at]) ? policy.short[argument[at]] : null;
+      if (!kind || (at > 1 && !policy.cluster)) throw refuse();
+      if (kind === 'flag') continue;
+      const attached = argument.slice(at + 1);
+      if (attached) values.push(attached);
+      else if (kind === 'value') needsNext();
+      break;
+    }
+  }
+  return values;
+}
+
 function refuseDotGit() {
   return new BloomError('WORKSPACE_DOT_GIT_REFUSED', 'Files under .git cannot be written.', 403);
 }
@@ -331,16 +455,26 @@ async function checkCommandRequest(root, args) {
   }
   if (SHELLS.has(command.toLowerCase())) throw refuseCommand('Shells are not allowed commands.');
   if (!ALLOWED_COMMANDS.includes(command)) throw refuseCommand('Only node, npm and git are allowed commands.');
+  const refuseNamedDotGit = () => refuseCommand('Command arguments cannot name a path under .git.');
   for (const argument of argv) {
     const { flag, value } = flagParts(argument);
     if (refusedFlag(command, flag)) throw refuseCommand(refusedFlagReason(command, flag));
     if (value !== null) await containedArgument(root, value);
+    if (await argumentNamesDotGit(root, value) || (value !== argument && await argumentNamesDotGit(root, argument))) {
+      throw refuseNamedDotGit();
+    }
   }
   if (command === 'npm' && REFUSED_NPM_COMMANDS.has(argv.find(item => !item.startsWith('-')))) {
     throw refuseCommand('npm exec, x, explore and edit are not allowed.');
   }
   if (command === 'git' && !GIT_SUBCOMMANDS.has(argv[0])) {
     throw refuseCommand('git is limited to status, diff, log, add and commit.');
+  }
+  if (command === 'git') {
+    for (const value of gitOptionValues(argv)) {
+      await containedArgument(root, value);
+      if (await argumentNamesDotGit(root, value)) throw refuseNamedDotGit();
+    }
   }
   const forwarded = [...argv];
   // Empty diff.external via GIT_CONFIG still invokes a blank program; force the builtin instead.

@@ -111,6 +111,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Evidence
 
+- `CAP-04.3` git write refusal (bloom#19, under ADR 0003): `test/shell-gate.test.mjs` passes ordinary `status`, `diff`, `log`, `add` and `commit` forms with exact argv. It refuses every reproduced form that writes, reads or runs a program through `.git` before any spawn, keeps a synthetic repository's `.git` byte-identical, and shows the coding loop recording the refusal without an approval question. The gate choices are uncited until the research corpus returns.
 - `CAP-04.3`: `test/shell-gate.test.mjs` checks Git metadata refusal and keeps ordinary directories writable. Its Git fixture reads back the repository settings and requires status, add, commit, and diff to succeed without running the configured programs.
 - Cloud opt-in and Gemini (bloom#9): `src/sandbox-marker.mjs` and `scripts/make-sandbox.mjs` mark throwaway sandboxes; `--allow-cloud` gates cloud providers in the terminal; `src/provider-errors.mjs` maps Google rate-limit errors; `test/cloud-gemini.test.mjs` covers the offline gate and probe shape; `test/live/live-suite.live.mjs` is loaded only by `npm run test:live`.
 - Live-test kit (bloom#8): `scripts/make-sandbox.mjs` makes the throwaway sandbox, `src/web.mjs` builds the web workspace from the private config only, `public/coding-view.js` formats the browser's model and tool rows, and `docs/live-test.md` is the runbook. `test/live-test-kit.test.mjs` covers each, and checks that every command the runbook names exists.
@@ -120,6 +121,7 @@ Bloom's coding sessions (`src/harness.mjs`) currently run only the scripted demo
 
 ## Changes
 
+- `2026-11-26`: Admit git options from a per-subcommand list, refuse arguments that name `.git` and node options that write files, and record the research exception in ADR 0003 (CAP-04, bloom#19).
 - `2026-11-24`: Use native resolved Git metadata paths on Windows and make the command gate fixture portable (CAP-04, bloom#5).
 
 - `2026-11-24`: Harden the command gate (distinct refusal reasons, linked-folder containment, `.git` write refusal, git config overrides, npm network flags, attached short options, `node --run`, allow-only approvals) and record the typed D19 answer (CAP-04, bloom#5).
