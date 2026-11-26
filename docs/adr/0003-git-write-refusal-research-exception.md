@@ -36,13 +36,14 @@ remediation of this one defect, on these conditions, paraphrased:
 The decision does not waive the research rule anywhere else.
 
 Approved scope: the command gate in `src/workspace-tools.mjs` (`REFUSED_FLAGS`, `refusedFlag`,
-`checkCommand` and a `.git` segment helper), `test/shell-gate.test.mjs`,
+`refusedFlagReason`, `checkCommand` and its body `checkCommandRequest`, and the new gate tables and
+helpers `NODE_WRITE_FLAGS`, `GIT_OPTIONS`, `argumentNamesDotGit` and `gitOptionValues`), `test/shell-gate.test.mjs`,
 `test/workspace-tools.test.mjs`, and the same-PR ledger files. No environment, executor or
 file-tool change, and no other defect.
 
 Evidence used in place of research cards: an offline synthetic reproduction at `4e61cca`. Each
 form ran in a fresh throwaway repository. The gate's verdict and the change to `.git` were
-recorded for each, and git's own option documentation was consulted for each admitted subcommand.
+recorded for each.
 
 The gate now:
 
@@ -70,8 +71,8 @@ Acceptance tests, in `test/shell-gate.test.mjs`:
 
 ## Consequences
 
-- The gate choices are uncited until the research returns. When the corpus is recovered, run
-  `research_plan bloom` and `research_for CAP-04.3` against this change. A conflicting card
+- The gate choices are uncited until the research returns. Within three working days of the corpus
+  being recovered, run `research_plan bloom` and `research_for CAP-04.3` against this change. A conflicting card
   opens a follow-up change. This ADR is updated when the gate decisions are cited.
 - Expiry: this exception ends when this remediation has been prepared and independently verified.
   It is not a standing authorization, and later gate changes follow the normal research rule.
