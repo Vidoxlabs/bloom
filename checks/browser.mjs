@@ -6,13 +6,13 @@ import { chromium } from 'playwright';
 import { startDemo } from './network.mjs';
 
 test('a person can brief a team, open its reviewed file and return on a phone', async t => {
-  const host = await startDemo(t);
+  const { link } = await startDemo(t);
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({viewport:{width:1440,height:1000}});
   const errors = [];
   page.on('pageerror',error => errors.push(error.message));
-  await page.goto(host);
+  await page.goto(link);
   await page.getByRole('heading',{name:'What should we work on?',exact:true}).waitFor();
   await page.getByRole('button',{name:'Create a coding session',exact:true}).click();
   assert.equal(await page.locator('#kind').inputValue(),'direct');

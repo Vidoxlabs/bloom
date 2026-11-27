@@ -23,18 +23,29 @@ export async function startDemo(t) {
     let log = '';
     child.stdout.on('data',chunk => {
       log += chunk;
-      const address = log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];
-      if (address) { clearTimeout(timer); resolve(address); }
+      const link = log.match(/(http:\/\/127\.0\.0\.1:\d+)\/#launch=[\w-]+/);
+      if (link) { clearTimeout(timer); resolve({ host: link[1], link: link[0] }); }
     });
     child.on('exit',code => {clearTimeout(timer); reject(new Error('Bloom listener exited: '+code));});
   });
   return url;
 }
 
+// Trade the printed one-time code for the owner credential, as the page does. The credential
+// comes back in the JSON body and is sent as the x-bloom-owner header; no cookie is involved.
+export async function signIn({ host, link }) {
+  const res = await fetch(host + '/api/launch', { method:'POST', headers:{'content-type':'application/json', origin:host}, body:JSON.stringify({ code: new URL(link).hash.slice('#launch='.length) }) });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('set-cookie'), null);
+  return { 'x-bloom-owner': (await res.json()).credential };
+}
+
 test('a downloadable checkout serves a complete team run and Markdown over HTTP', async t => {
-  const host = await startDemo(t);
+  const demo = await startDemo(t);
+  const { host } = demo;
+  const owner = await signIn(demo);
   const post = async (path, body) => {
-    const res = await fetch(host + path, { method:'POST', headers:{'content-type':'application/json'},body:JSON.stringify(body) });
+    const res = await fetch(host + path, { method:'POST', headers:{'content-type':'application/json', ...owner},body:JSON.stringify(body) });
     assert.ok(res.ok, String(res.status)); return res.json();
   };
   const room = await post('/api/teams',{name:'Field lead'});
@@ -43,14 +54,14 @@ test('a downloadable checkout serves a complete team run and Markdown over HTTP'
   await post('/api/sessions/' + room.id + '/turns',{text:'Create a reviewed guide',files:[source.id]});
   let state;
   for (let i=0;i<120;i++) {
-    state = await (await fetch(host+path)).json();
+    state = await (await fetch(host+path,{headers:owner})).json();
     if (state.files.length === 4) break;
     await delay(50);
   }
   assert.deepEqual(state.members.map(m => m.name),['Researcher','Reviewer','Assembler']);
   const result = state.files.find(f => f.author === 'Assembler');
   assert.ok(result);
-  const res = await fetch(host+path+'/files/'+result.id+'?download');
+  const res = await fetch(host+path+'/files/'+result.id+'?download',{headers:owner});
   assert.equal(res.status,200); assert.match(res.headers.get('content-disposition'),/attachment/);
   assert.match(await res.text(),/Notebook/);
 });
