@@ -72,11 +72,15 @@ The channel now:
 - prints a launch link that carries the code in the URL fragment, which browsers do not send to
   a server;
 - removes the fragment from the address bar and the history entry with `history.replaceState`
-  before using it, then trades the code for an `HttpOnly`, `SameSite=Strict` session cookie whose
-  name carries the listener's port. The code then stops working;
+  before using it, then trades the code for the credential, which the exchange returns in its JSON
+  body. The code then stops working. The exchange sets no cookie;
+- keeps the credential in the tab's `sessionStorage`, which belongs to the page's origin (scheme,
+  host and port) and ends when the tab closes, and sends it as the `x-bloom-owner` request header.
+  The page reads the event stream with `fetch`, because `EventSource` cannot send a header;
 - requires the credential on every `/api/` route, including the session listing, the event stream
-  and decisions. Without it the request is refused with 401 before the body is read or any state
-  changes;
+  and decisions, and accepts it only from the `x-bloom-owner` header. A cookie, a query parameter
+  or a body value does not count. Without the header the request is refused with 401 before the
+  body is read or any state changes;
 - compares secrets in constant time;
 - refuses cross-origin requests (an `Origin` that does not match, or a `Sec-Fetch-Site` other
   than `same-origin`), and refuses a code exchange without a matching `Origin`;
@@ -87,9 +91,11 @@ The channel now:
   This change does not alter the executor.
 
 Limit: this does not protect against arbitrary code running as the same OS user. Such code can
-read the server's memory, the terminal that shows the launch link, or the browser profile that
-holds the cookie. It can also open the owner's browser on another loopback port, which receives
-the cookie, because browsers do not separate cookies by port. Nothing here is process isolation.
+read the server's memory, the terminal that shows the launch link, or the browser profile, which
+holds the tab's `sessionStorage`. Nothing here is process isolation. The cross-port cookie path
+is closed: browsers send a cookie to every port on a host, so the channel neither sets nor reads
+one, and a browser visit to another loopback port carries no credential. A page on another port
+is another origin and cannot read this origin's `sessionStorage`.
 What the change does stop is a process that can reach the loopback listener but does not read this
 user's memory, terminal or browser profile: another account on the same machine, a container that
 shares the host's loopback, a page from another origin, and the reproduced chain, in which a
@@ -106,14 +112,20 @@ Acceptance tests, in `test/http.test.mjs`:
    decision. The file is not written, and the only resolution of the write request is the owner's.
 3. `owner-channel-owner-completes-the-flow`: the owner trades the launch code, lists the
    sessions, streams the events and approves a write, which runs. The code works once.
-4. `owner-channel-refuses-credentials-from-an-earlier-launch`: a cookie and a launch code from
-   one launch are refused by the next.
+4. `owner-channel-refuses-credentials-from-an-earlier-launch`: a credential and a launch code
+   from one launch are refused by the next.
 5. `owner-channel-refuses-cross-origin-and-malformed-requests`: cross-origin, cross-site and
    malformed requests and exchanges are refused with no state change, and the launch code still
    works afterwards.
 6. `owner-channel-keeps-the-credential-out-of-records`: neither the credential nor the launch
    code appears in events, traces, logs, data-directory files, an exported session, the model
    prompt or a command's environment.
+7. `owner-channel-launch-returns-the-credential-and-sets-no-cookie`: the exchange returns the
+   credential in its body and sends no `Set-Cookie` header.
+8. `owner-channel-accepts-the-credential-only-from-its-header`: over a real loopback listener,
+   the valid credential sent as a cookie (under this port's name, another port's name or a plain
+   name), as a query parameter or as a body field is refused with 401 on every `/api/` route,
+   including the event stream, with no state change. The same credential in the header works.
 
 ## Consequences
 
@@ -124,12 +136,15 @@ Acceptance tests, in `test/http.test.mjs`:
 - Expiry: this exception ends at the earliest of the remediation being prepared and independently
   verified, the research corpus being restored, or 2026-12-10. It is not a standing
   authorization, and later changes to the channel follow the normal research rule.
-- Each launch link works once. A browser that loses its cookie, or opens Bloom under a host name
-  other than the one in the link, needs a new launch, so restart Bloom. A script that calls the API must
-  trade the launch code first.
+- Each launch link works once and signs in one tab. Another tab, a reopened tab, or a tab that
+  opens Bloom under a host name other than the one in the link needs a new launch, so restart
+  Bloom. Reloading the signed-in tab keeps it signed in. A script that calls the API must trade the
+  launch code first and send the `x-bloom-owner` header.
 - The page shell and static assets stay reachable without the credential. They hold no session
   data.
 
 ## Changes
 
 - 2026-11-26: Record the exception and the owner-channel authentication (CAP-04, bloom#21).
+- 2026-11-26: Carry the credential in a request header instead of a cookie, so a browser no
+  longer sends it to other ports on the host (CAP-04, bloom#21).
