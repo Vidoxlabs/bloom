@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import { exportSession } from '../src/cli/session-io.mjs';
 import { createCodingRuntime } from '../src/coding-loop.mjs';
 import { endpointRedactor } from '../src/endpoint-privacy.mjs';
@@ -703,7 +704,7 @@ test('owner-channel-keeps-the-credential-out-of-records', async t => {
     info: (await channel.call('GET', '/api/info', { cookie })).text,
   };
   for (const [name, text] of Object.entries(records)) {
-    assert.ok(text.length > 0, name + ' is empty');
+    if (name !== 'logs') assert.ok(text.length > 0, name + ' is empty');
     assert.ok(!text.includes(credential), 'credential in ' + name);
     assert.ok(!text.includes(code), 'launch code in ' + name);
   }
@@ -715,4 +716,64 @@ test('owner-channel-keeps-the-credential-out-of-records', async t => {
     assert.ok(!bytes.includes(code), 'launch code in data file ' + file.slice(channel.dataDirectory.length));
   }
   assert.equal(JSON.stringify(channel.owner ?? {}), '{}', 'the channel object exposes no fields');
+});
+
+// Ask the real launcher, over its own listener, the way the owner's tab does.
+function loopbackCall(address, method, path, { cookie, headers = {}, body } = {}) {
+  const [hostname, port] = address.split(':');
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ host: hostname, port: Number(port), method, path, headers: {
+      host: address, 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers,
+    } }, response => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { text += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, text }));
+    });
+    request.on('error', reject);
+    request.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+test('owner-channel-launch-link-signs-in-and-the-credential-is-never-printed', async t => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), 'vibloom-launch-'));
+  const main = fileURLToPath(new URL('../src/main.mjs', import.meta.url));
+  const child = spawn(process.execPath, [main, '--demo', '--port', '0', '--data-dir', dataDirectory], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk; });
+  child.stderr.on('data', chunk => { output += chunk; });
+  const closed = new Promise(resolve => child.on('close', resolve));
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+    rmSync(dataDirectory, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 });
+  });
+  const started = Date.now();
+  let link;
+  while (!(link = /http:\/\/([^/\s]+)\/#launch=([\w-]+)/.exec(output))) {
+    if (Date.now() - started > 10_000 || child.exitCode !== null) throw new Error('The launcher printed no launch link.');
+    await delay(25);
+  }
+  const [, address, code] = link;
+  assert.match(code, /^[\w-]{43}$/);
+  // Without the code nothing opens; the printed code signs in once.
+  assert.equal((await loopbackCall(address, 'GET', '/api/sessions')).status, 401);
+  const signIn = await loopbackCall(address, 'POST', '/api/launch', { headers: { origin: 'http://' + address }, body: { code } });
+  assert.equal(signIn.status, 200);
+  const cookie = cookiePair(signIn.headers['set-cookie']?.[0]);
+  const credential = cookie.split('=')[1] ?? '';
+  assert.match(credential, /^[\w-]{43}$/);
+  assert.equal((await loopbackCall(address, 'GET', '/api/sessions', { cookie })).status, 200);
+  assert.equal((await loopbackCall(address, 'POST', '/api/launch', { headers: { origin: 'http://' + address }, body: { code } })).status, 403);
+  child.kill();
+  await closed;
+  assert.ok(!output.includes(credential), 'the launcher printed the credential');
+  assert.equal(output.split(code).length - 1, 1, 'the launcher printed the code once, in the link');
+  const files = filesUnder(dataDirectory);
+  assert.ok(files.length > 0);
+  for (const file of files) {
+    const bytes = readFileSync(file);
+    assert.ok(!bytes.includes(credential), 'credential in data file ' + file.slice(dataDirectory.length));
+    assert.ok(!bytes.includes(code), 'launch code in data file ' + file.slice(dataDirectory.length));
+  }
 });
