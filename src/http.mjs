@@ -47,7 +47,7 @@ async function readConfirmedNoteWrite(request, teams, id) {
 // connect and the Host and Origin checks limit which page can ask; neither says who is asking.
 // The owner credential and the one-time launch code live only in this closure: never in the
 // process environment, a file, an event or a log. A restart makes new ones, so an earlier
-// launch's cookie is refused. This is not isolation from code running as the same OS user.
+// launch's credential is refused. This is not isolation from code running as the same OS user.
 export function createOwnerChannel() {
   const credential = randomBytes(32).toString('base64url');
   let code = randomBytes(32).toString('base64url');
@@ -78,10 +78,9 @@ function sameSecret(candidate, expected) {
   return timingSafeEqual(digest(candidate), digest(expected));
 }
 
-function cookieValues(header, name) {
-  if (typeof header !== 'string') return [];
-  return header.split(';').map(part => part.trim()).filter(part => part.startsWith(name + '=')).map(part => part.slice(name.length + 1));
-}
+// The only carrier the owner credential is accepted from. A browser sends a cookie to every port
+// on the host, so a cookie is never read; a query or body value would end up in logs and history.
+const ownerHeader = 'x-bloom-owner';
 
 function json(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -148,23 +147,22 @@ export function createHandler(harness, { owner } = {}) {
         if (site !== undefined && site !== 'same-origin') {
           throw new BloomError('ORIGIN_MISMATCH', 'Open the workspace from the Bloom tab.', 403);
         }
-        // Cookies are shared across ports on one host, so the name carries this listener's port.
-        const cookieName = 'bloom_owner_' + (host.split(':')[1] ?? '80');
         if (method === 'POST' && pathname === '/api/launch') {
           if (request.headers.origin !== origin) {
             throw new BloomError('ORIGIN_MISMATCH', 'Open the launch link in your browser.', 403);
           }
           const credential = owner?.exchange((await readBody(request)).code) ?? null;
           if (!credential) {
-            throw new BloomError('LAUNCH_CODE_INVALID', 'This launch link was already used or belongs to an earlier launch. Restart Bloom and open the new link.', 403);
+            throw new BloomError('LAUNCH_CODE_INVALID', 'This launch link was already used or belongs to an earlier launch. If you did not open it before, another program may have. Restart Bloom and open the new link.', 403);
           }
-          response.setHeader('set-cookie', cookieName + '=' + credential + '; Path=/; HttpOnly; SameSite=Strict');
-          return json(response, 200, { owner: true });
+          // The page keeps the credential in its own tab's storage and sends it as a header. No
+          // cookie is set, because a cookie would also go to every other port on this host.
+          return json(response, 200, { owner: true, credential });
         }
-        // Every other API route reads or changes session data, so it needs the owner credential,
-        // checked before the body is read or any state is touched.
-        if (!owner || !cookieValues(request.headers.cookie, cookieName).some(value => owner.verify(value))) {
-          throw new BloomError('OWNER_REQUIRED', 'Open Bloom from the launch link it printed when it started.', 401);
+        // Every other API route reads or changes session data, so it needs the owner credential in
+        // its header, checked before the body is read or any state is touched.
+        if (!owner || !owner.verify(request.headers[ownerHeader])) {
+          throw new BloomError('OWNER_REQUIRED', 'This tab is not signed in. Use the tab that opened the launch link, or restart Bloom and open the new link it prints.', 401);
         }
       }
       if (method === 'GET' && pathname === '/api/info') return json(response, 200, harness.info());

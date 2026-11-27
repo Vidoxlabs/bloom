@@ -23,6 +23,9 @@ const origin = 'http://' + host;
 const [loopback, listenPort] = host.split(':');
 // The same loopback address on another port: same site, different origin.
 const otherOrigin = 'http://' + loopback + ':' + (Number(listenPort) + 1);
+// The owner credential travels only in this request header. A cookie with the same value is
+// what a browser would also send to every other port on the host, so it must not count.
+const ownerHeader = 'x-bloom-owner';
 const ownerCookie = 'bloom_owner_4317';
 const absentId = '00000000-0000-4000-8000-000000000000';
 const writeOptions = [
@@ -55,9 +58,11 @@ class Response extends EventEmitter {
   eventIds() { return this.chunks.flatMap(chunk => chunk.startsWith('id: ') ? [Number(chunk.split('\n')[0].slice(4))] : []); }
 }
 
-// The cookie pair (name=value) from a Set-Cookie header, or '' when none was set.
-function cookiePair(setCookie) {
-  return typeof setCookie === 'string' ? setCookie.split(';')[0] : '';
+// The owner credential from a launch response's JSON body, or '' when none was returned.
+function launchCredential(response) {
+  if (response?.status !== 200) return '';
+  const body = typeof response.json === 'function' ? response.json() : JSON.parse(response.text);
+  return typeof body.credential === 'string' ? body.credential : '';
 }
 
 // One request through a handler, as Node's server would deliver it.
@@ -103,14 +108,14 @@ async function setup(t, { redact, reply = 'Hello from the fixture.', ask = false
     rmSync(dataDirectory, { recursive: true, force: true });
   });
   const handler = createHandler(harness, { owner });
-  let cookie = '';
+  let credential = '';
   const send = (url, { anonymous = false, headers, ...options } = {}) =>
-    dispatch(handler, url, { ...options, headers: { ...(cookie && !anonymous ? { cookie } : {}), ...headers } });
-  // Sign in as the owner's tab does: trade the one-time launch code for the owner cookie.
+    dispatch(handler, url, { ...options, headers: { ...(credential && !anonymous ? { [ownerHeader]: credential } : {}), ...headers } });
+  // Sign in as the owner's tab does: trade the one-time launch code for the owner credential.
   const code = owner?.launchCode() ?? null;
   const signIn = signedIn ? await send('/api/launch', { method: 'POST', headers: { origin }, body: { code }, anonymous: true }) : null;
-  cookie = cookiePair(signIn?.headers['set-cookie']);
-  return { send, harness, store, handler, owner, code, cookie, signIn, dataDirectory, useCookie: value => { cookie = value; } };
+  credential = launchCredential(signIn);
+  return { send, harness, store, handler, owner, code, credential, signIn, dataDirectory, useCredential: value => { credential = value; } };
 }
 
 // Start a turn whose fixture asks one write question, and wait for that question.
@@ -305,20 +310,19 @@ test('configured addresses never reach the browser event stream or session title
 // but only the per-launch owner credential lets a request read sessions or settle approvals.
 
 test('owner-channel-refuses-requests-without-the-credential', async t => {
-  const { send, harness, store, cookie } = await setup(t, { ask: true });
+  const { send, harness, store, credential } = await setup(t, { ask: true });
   const { session, question } = await pendingQuestion(send, harness);
   const prefix = '/api/sessions/' + session.id;
   const before = store.eventsAfter(session.id, 0).length;
-  const credential = cookie.split('=')[1];
-  const refusedCookies = [
-    undefined,
-    ownerCookie + '=' + 'A'.repeat(43),
-    ownerCookie + '=',
-    'bloom_owner_4318=' + credential,
+  const refused = [
+    ['no credential', {}],
+    ['a wrong credential', { [ownerHeader]: 'A'.repeat(43) }],
+    ['an empty header', { [ownerHeader]: '' }],
+    ['the credential as a cookie', { cookie: ownerCookie + '=' + credential }],
+    ['the credential as another port\'s cookie', { cookie: 'bloom_owner_4318=' + credential }],
+    ['the credential as a bearer token', { authorization: 'Bearer ' + credential }],
   ];
-  for (const value of refusedCookies) {
-    const headers = value === undefined ? {} : { cookie: value };
-    const label = value === undefined ? 'no cookie' : 'cookie ' + value.split('=')[0];
+  for (const [label, headers] of refused) {
     const listing = await send('/api/sessions', { headers, anonymous: true });
     assert.equal(listing.status, 401, 'listing, ' + label);
     assert.equal(listing.json().code, 'OWNER_REQUIRED');
@@ -339,7 +343,7 @@ test('owner-channel-refuses-requests-without-the-credential', async t => {
   assert.equal(store.eventsAfter(session.id, 0).length, before);
   assert.ok(harness.active.get(session.id)?.permissions.has(question.id), 'the question is still pending');
   assert.equal(store.listSessions().length, 1);
-  assert.match(cookie, /^bloom_owner_4317=[\w-]{43}$/);
+  assert.match(credential, /^[\w-]{43}$/);
   const finished = finishedTurn(harness, session.id);
   assert.deepEqual((await send(prefix + '/permissions/' + question.id, { method: 'POST', body: { optionId: 'reject' } })).json(), { accepted: true });
   await finished;
@@ -353,7 +357,7 @@ test('owner-channel-refuses-credentials-from-an-earlier-launch', async t => {
   const nextOwner = http.createOwnerChannel?.();
   const next = createHandler(first.harness, { owner: nextOwner });
   const before = first.store.eventsAfter(session.id, 0).length;
-  const stale = { cookie: first.cookie };
+  const stale = { [ownerHeader]: first.credential };
   assert.equal((await dispatch(next, '/api/sessions', { headers: stale })).status, 401);
   assert.equal((await dispatch(next, prefix + '/events', { headers: stale })).status, 401);
   assert.equal((await dispatch(next, prefix + '/permissions/' + question.id, {
@@ -369,22 +373,24 @@ test('owner-channel-refuses-credentials-from-an-earlier-launch', async t => {
   }
   assert.equal(first.store.eventsAfter(session.id, 0).length, before);
   assert.ok(first.harness.active.get(session.id)?.permissions.has(question.id));
-  // The new launch's own code works, and its cookie means nothing to the earlier launch.
+  // The new launch's own code works, and its credential means nothing to the earlier launch.
   const fresh = await dispatch(next, '/api/launch', { method: 'POST', headers: { origin }, body: { code: nextOwner.launchCode() } });
   assert.equal(fresh.status, 200);
-  const nextCookie = cookiePair(fresh.headers['set-cookie']);
-  assert.notEqual(nextCookie, first.cookie);
-  assert.equal((await dispatch(next, '/api/sessions', { headers: { cookie: nextCookie } })).status, 200);
-  assert.equal((await dispatch(first.handler, '/api/sessions', { headers: { cookie: nextCookie } })).status, 401);
+  assert.equal(fresh.headers['set-cookie'], undefined);
+  const nextCredential = launchCredential(fresh);
+  assert.match(nextCredential, /^[\w-]{43}$/);
+  assert.notEqual(nextCredential, first.credential);
+  assert.equal((await dispatch(next, '/api/sessions', { headers: { [ownerHeader]: nextCredential } })).status, 200);
+  assert.equal((await dispatch(first.handler, '/api/sessions', { headers: { [ownerHeader]: nextCredential } })).status, 401);
   const finished = finishedTurn(first.harness, session.id);
   assert.equal((await dispatch(next, prefix + '/permissions/' + question.id, {
-    method: 'POST', headers: { cookie: nextCookie }, body: { optionId: 'reject' },
+    method: 'POST', headers: { [ownerHeader]: nextCredential }, body: { optionId: 'reject' },
   })).status, 200);
   await finished;
 });
 
 test('owner-channel-refuses-cross-origin-and-malformed-requests', async t => {
-  const { send, harness, store, code, useCookie } = await setup(t, { ask: true, signedIn: false });
+  const { send, harness, store, code, useCredential } = await setup(t, { ask: true, signedIn: false });
   const exchange = (headers, body = { code }, method = 'POST') => send('/api/launch', { method, headers, body, anonymous: true });
   const refusedExchanges = [
     ['no origin', {}],
@@ -411,9 +417,10 @@ test('owner-channel-refuses-cross-origin-and-malformed-requests', async t => {
   // None of those spent the code: the owner's tab still signs in with it, once.
   const signIn = await exchange({ origin, 'sec-fetch-site': 'same-origin' });
   assert.equal(signIn.status, 200);
-  assert.match(signIn.headers['set-cookie'], /^bloom_owner_4317=[\w-]{43}; Path=\/; HttpOnly; SameSite=Strict$/);
-  const cookie = cookiePair(signIn.headers['set-cookie']);
-  useCookie(cookie);
+  assert.equal(signIn.headers['set-cookie'], undefined);
+  const credential = launchCredential(signIn);
+  assert.match(credential, /^[\w-]{43}$/);
+  useCredential(credential);
   assert.equal((await exchange({ origin })).status, 403);
 
   const { session, question } = await pendingQuestion(send, harness);
@@ -432,10 +439,15 @@ test('owner-channel-refuses-cross-origin-and-malformed-requests', async t => {
     assert.equal(response.status, 403, method + ' ' + path + ' ' + JSON.stringify(headers));
     assert.equal(response.json().code, 'ORIGIN_MISMATCH');
   }
-  const malformedCookies = ['garbage', ';;;=', ownerCookie, cookie + 'x', cookie.slice(0, -1), ' ' + ownerCookie + ' = ' + cookie.split('=')[1]];
-  for (const value of malformedCookies) {
-    const response = await send(decision, { method: 'POST', headers: { cookie: value }, body: { optionId: 'allow-once' } });
-    assert.equal(response.status, 401, 'cookie ' + JSON.stringify(value));
+  // A malformed header value is refused, and so is a valid credential that is not in the header.
+  const malformed = [
+    { [ownerHeader]: 'garbage' }, { [ownerHeader]: credential + 'x' }, { [ownerHeader]: credential.slice(0, -1) },
+    { [ownerHeader]: credential.toUpperCase() }, { [ownerHeader]: 'Bearer ' + credential }, { [ownerHeader]: credential + ', ' + credential },
+    { [ownerHeader]: '', cookie: ownerCookie + '=' + credential }, { [ownerHeader]: '', 'x-bloom-owner-credential': credential },
+  ];
+  for (const headers of malformed) {
+    const response = await send(decision, { method: 'POST', headers, body: { optionId: 'allow-once' } });
+    assert.equal(response.status, 401, 'headers ' + JSON.stringify(headers).replaceAll(credential, '<credential>'));
   }
   assert.equal((await send(decision, { method: 'POST', body: '{' })).status, 400);
   assert.equal((await send(decision, { method: 'POST', body: { optionId: 'allow-everything' } })).json().code, 'PERMISSION_UNKNOWN');
@@ -471,10 +483,13 @@ async function liveChannel(t, replies) {
     store.close();
     rmSync(base, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 });
   });
-  function call(method, path, { cookie, headers = {}, body } = {}) {
+  function call(method, path, { credential, headers = {}, body } = {}) {
+    // Node sends a DELETE body without a length unless one is given, so always give one.
+    const payload = body === undefined ? undefined : JSON.stringify(body);
     return new Promise((resolve, reject) => {
       const request = httpRequest({ host: loopback, port, method, path, headers: {
-        host: address, 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers,
+        host: address, 'content-type': 'application/json', ...(payload === undefined ? {} : { 'content-length': Buffer.byteLength(payload) }),
+        ...(credential ? { [ownerHeader]: credential } : {}), ...headers,
       } }, response => {
         let text = '';
         response.setEncoding('utf8');
@@ -482,17 +497,17 @@ async function liveChannel(t, replies) {
         response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, text, json: () => JSON.parse(text) }));
       });
       request.on('error', reject);
-      request.end(body === undefined ? undefined : JSON.stringify(body));
+      request.end(payload);
     });
   }
   async function signIn() {
     const response = await call('POST', '/api/launch', { headers: { origin: 'http://' + address }, body: { code: owner?.launchCode() ?? null } });
-    return cookiePair(response.headers['set-cookie']?.[0]);
+    return launchCredential(response);
   }
-  function events(cookie, sessionId, onEvent) {
+  function events(credential, sessionId, onEvent, { headers = {}, query = '' } = {}) {
     return new Promise((resolve, reject) => {
-      const request = httpRequest({ host: loopback, port, path: '/api/sessions/' + sessionId + '/events',
-        headers: { host: address, ...(cookie ? { cookie } : {}) } }, response => {
+      const request = httpRequest({ host: loopback, port, path: '/api/sessions/' + sessionId + '/events' + query,
+        headers: { host: address, ...(credential ? { [ownerHeader]: credential } : {}), ...headers } }, response => {
         streams.add(response);
         let buffer = '';
         let text = '';
@@ -570,16 +585,16 @@ test('owner-channel-replays-the-reproduced-self-approval-chain', async t => {
   ]);
   writeFileSync(join(channel.workspace, 'helper.mjs'), helperSource);
   writeFileSync(join(channel.workspace, 'approver.mjs'), approverSource);
-  const cookie = await channel.signIn();
-  const decide = (id, optionId, credential = cookie, headers = {}) =>
-    channel.call('POST', '/api/sessions/' + sessionId + '/permissions/' + id, { cookie: credential, headers, body: { optionId } });
-  sessionId = (await channel.call('POST', '/api/sessions', { cookie, body: { workspace: channel.workspace } })).json().id;
+  const credential = await channel.signIn();
+  const decide = (id, optionId, value = credential, headers = {}) =>
+    channel.call('POST', '/api/sessions/' + sessionId + '/permissions/' + id, { credential: value, headers, body: { optionId } });
+  sessionId = (await channel.call('POST', '/api/sessions', { credential, body: { workspace: channel.workspace } })).json().id;
   const ownerAnswered = [];
   const nonOwner = {};
   const failures = [];
   let finished;
   const done = new Promise(resolve => { finished = resolve; });
-  const stream = await channel.events(cookie, sessionId, event => {
+  const stream = await channel.events(credential, sessionId, event => {
     if (event.type === 'turn.finished') finished(event.data);
     if (event.type !== 'permission.requested') return;
     void (async () => {
@@ -591,20 +606,22 @@ test('owner-channel-replays-the-reproduced-self-approval-chain', async t => {
       // The owner never answers the write. A non-owner who learned its id tries first.
       nonOwner.report = JSON.parse(await waitForFile(join(channel.base, 'approver.json')));
       nonOwner.direct = (await decide(event.data.id, 'allow-once', '')).status;
-      nonOwner.forged = (await decide(event.data.id, 'allow-once', 'bloom_owner_' + channel.port + '=' + 'A'.repeat(43))).status;
-      nonOwner.crossOrigin = (await decide(event.data.id, 'allow-once', cookie, { origin: 'http://' + loopback + ':' + (channel.port + 1) })).status;
+      nonOwner.forged = (await decide(event.data.id, 'allow-once', 'A'.repeat(43))).status;
+      // The real credential, captured elsewhere and replayed as a cookie, as a browser would send it to any port.
+      nonOwner.cookieReplay = (await decide(event.data.id, 'allow-once', '', { cookie: 'bloom_owner_' + channel.port + '=' + credential })).status;
+      nonOwner.crossOrigin = (await decide(event.data.id, 'allow-once', credential, { origin: 'http://' + loopback + ':' + (channel.port + 1) })).status;
       nonOwner.ownerReject = (await decide(event.data.id, 'reject')).status;
     })().catch(error => failures.push(error));
   });
   assert.equal(stream.status, 200);
-  assert.equal((await channel.call('POST', '/api/sessions/' + sessionId + '/turns', { cookie, body: { text: 'Build the project and add a note.' } })).status, 202);
+  assert.equal((await channel.call('POST', '/api/sessions/' + sessionId + '/turns', { credential, body: { text: 'Build the project and add a note.' } })).status, 202);
   const ending = await Promise.race([done, delay(20_000).then(() => ({ status: 'test-timeout' }))]);
   assert.deepEqual(failures, []);
   assert.equal(ending.status, 'finished');
   assert.deepEqual(ownerAnswered, ['workspace.shell.execute']);
   assert.equal(existsSync(join(channel.workspace, target)), false, 'fileWritten');
   assert.deepEqual(nonOwner.report, { listing: 401, events: 401, decision: 401, launch: 403 });
-  assert.deepEqual([nonOwner.direct, nonOwner.forged, nonOwner.crossOrigin, nonOwner.ownerReject], [401, 401, 403, 200]);
+  assert.deepEqual([nonOwner.direct, nonOwner.forged, nonOwner.cookieReplay, nonOwner.crossOrigin, nonOwner.ownerReject], [401, 401, 401, 403, 200]);
   const history = channel.store.eventsAfter(sessionId, 0);
   const writeQuestion = history.find(event => event.type === 'permission.requested' && event.data.toolId === 'workspace.file.write');
   assert.deepEqual(history.filter(event => event.type === 'permission.resolved' && event.data.id === writeQuestion.data.id).map(event => event.data.kind),
@@ -621,27 +638,28 @@ test('owner-channel-owner-completes-the-flow', async t => {
   const exchange = () => channel.call('POST', '/api/launch', { headers: { origin: 'http://' + channel.address, 'sec-fetch-site': 'same-origin' }, body: { code } });
   const signIn = await exchange();
   assert.equal(signIn.status, 200);
-  const cookie = cookiePair(signIn.headers['set-cookie']?.[0]);
-  assert.match(cookie, new RegExp('^bloom_owner_' + channel.port + '=[\\w-]{43}$'));
+  assert.equal(signIn.headers['set-cookie'], undefined);
+  const credential = launchCredential(signIn);
+  assert.match(credential, /^[\w-]{43}$/);
   const again = await exchange();
   assert.equal(again.status, 403);
   assert.equal(again.json().code, 'LAUNCH_CODE_INVALID');
-  assert.deepEqual((await channel.call('GET', '/api/sessions', { cookie })).json(), []);
-  const session = (await channel.call('POST', '/api/sessions', { cookie, body: { workspace: channel.workspace } })).json();
-  assert.deepEqual((await channel.call('GET', '/api/sessions', { cookie })).json().map(item => item.id), [session.id]);
+  assert.deepEqual((await channel.call('GET', '/api/sessions', { credential })).json(), []);
+  const session = (await channel.call('POST', '/api/sessions', { credential, body: { workspace: channel.workspace } })).json();
+  assert.deepEqual((await channel.call('GET', '/api/sessions', { credential })).json().map(item => item.id), [session.id]);
   let finished;
   const done = new Promise(resolve => { finished = resolve; });
   const decisions = [];
-  const stream = await channel.events(cookie, session.id, event => {
+  const stream = await channel.events(credential, session.id, event => {
     if (event.type === 'turn.finished') finished(event.data);
     if (event.type === 'permission.requested') {
       channel.call('POST', '/api/sessions/' + session.id + '/permissions/' + event.data.id, {
-        cookie, headers: { origin: 'http://' + channel.address, 'sec-fetch-site': 'same-origin' }, body: { optionId: 'allow-once' },
+        credential, headers: { origin: 'http://' + channel.address, 'sec-fetch-site': 'same-origin' }, body: { optionId: 'allow-once' },
       }).then(response => decisions.push(response.json()), error => decisions.push(String(error)));
     }
   });
   assert.equal(stream.status, 200);
-  assert.equal((await channel.call('POST', '/api/sessions/' + session.id + '/turns', { cookie, body: { text: 'Add a note.' } })).status, 202);
+  assert.equal((await channel.call('POST', '/api/sessions/' + session.id + '/turns', { credential, body: { text: 'Add a note.' } })).status, 202);
   const ending = await Promise.race([done, delay(20_000).then(() => ({ status: 'test-timeout' }))]);
   assert.equal(ending.status, 'finished');
   assert.deepEqual(decisions, [{ accepted: true }]);
@@ -649,6 +667,91 @@ test('owner-channel-owner-completes-the-flow', async t => {
   const resolved = channel.store.eventsAfter(session.id, 0).filter(event => event.type === 'permission.resolved');
   assert.deepEqual(resolved.map(event => event.data.kind), ['allow_once']);
   assert.match(stream.text(), /permission\.resolved/);
+});
+
+test('owner-channel-launch-returns-the-credential-and-sets-no-cookie', async t => {
+  const { send, owner, code } = await setup(t, { signedIn: false });
+  const signIn = await send('/api/launch', { method: 'POST', headers: { origin, 'sec-fetch-site': 'same-origin' }, body: { code }, anonymous: true });
+  assert.equal(signIn.status, 200);
+  // A cookie would also reach every other port on this host, so the launch sets none.
+  assert.equal(signIn.headers['set-cookie'], undefined);
+  assert.ok(!Object.keys(signIn.headers).some(name => name.toLowerCase() === 'set-cookie'));
+  const body = signIn.json();
+  assert.deepEqual(Object.keys(body).sort(), ['credential', 'owner']);
+  assert.equal(body.owner, true);
+  assert.match(body.credential, /^[\w-]{43}$/);
+  assert.ok(owner.verify(body.credential));
+  assert.equal((await send('/api/info', { anonymous: true, headers: { [ownerHeader]: body.credential } })).status, 200);
+});
+
+test('owner-channel-accepts-the-credential-only-from-its-header', async t => {
+  const channel = await liveChannel(t, [action('run.answer.create', { text: 'done' })]);
+  const exchange = await channel.call('POST', '/api/launch', { headers: { origin: 'http://' + channel.address }, body: { code: channel.owner?.launchCode() ?? null } });
+  assert.equal(exchange.status, 200);
+  // A head that still issues a cookie hands the credential there; read it so the replays below are real.
+  const credential = launchCredential(exchange) || (String(exchange.headers['set-cookie']?.[0] ?? '').split(';')[0].split('=')[1] ?? '');
+  assert.match(credential, /^[\w-]{43}$/);
+  // Fixtures come straight from the harness, so this test does not depend on the credential's carrier.
+  const session = channel.harness.createSession({ workspace: channel.workspace });
+  const team = channel.harness.teams.create({ name: 'Desk lead' });
+  const before = { sessions: channel.store.listSessions().length, events: channel.store.eventsAfter(session.id, 0).length };
+  const s = '/api/sessions/' + session.id;
+  const tm = '/api/teams/' + team.id;
+  const routes = [
+    ['GET', '/api/info'], ['GET', '/api/sessions'], ['POST', '/api/sessions', {}],
+    ['POST', s + '/turns', { text: 'Again.' }], ['POST', s + '/stop', { turnId: absentId }],
+    ['POST', s + '/permissions/' + absentId, { optionId: 'allow-once' }],
+    ['POST', '/api/teams', { name: 'Other' }], ['GET', '/api/personas'], ['POST', '/api/personas', { name: 'Iris', charter: 'Find sources.' }],
+    ['PUT', '/api/personas/' + absentId, { name: 'Iris' }], ['DELETE', '/api/personas/' + absentId, {}],
+    ['GET', tm], ['POST', tm + '/sources', { text: 'A source.' }], ['POST', tm + '/notes', { confirmed: true, text: 'x' }],
+    ['POST', tm + '/members', { personaId: absentId }], ['PUT', tm + '/notes/' + absentId, { confirmed: true, text: 'y' }],
+    ['POST', tm + '/suggestions/' + absentId, { confirmed: true }], ['DELETE', tm + '/suggestions/' + absentId, {}],
+    ['DELETE', tm + '/notes/' + absentId, { confirmed: true }], ['GET', tm + '/files/' + absentId], ['GET', tm + '/files/' + absentId + '?download'],
+    ['GET', '/api/not-a-route'],
+  ];
+  const port = channel.port;
+  const elsewhere = [
+    ['a cookie named for this port', path => [path, { cookie: 'bloom_owner_' + port + '=' + credential }]],
+    ['a cookie named for another port', path => [path, { cookie: 'bloom_owner_' + (port + 1) + '=' + credential }]],
+    ['a plain cookie', path => [path, { cookie: ownerHeader + '=' + credential }]],
+    ['a query parameter', path => [path + (path.includes('?') ? '&' : '?') + ownerHeader + '=' + credential, {}]],
+    ['an owner query parameter', path => [path + (path.includes('?') ? '&' : '?') + 'owner=' + credential + '&credential=' + credential, {}]],
+  ];
+  const accepted = [];
+  const attempt = (method, target, options) => channel.call(method, target, options).catch(error => ({ status: 'error ' + error.code, text: '{}' }));
+  for (const [method, path, body] of routes) {
+    for (const [label, place] of elsewhere) {
+      const [target, headers] = place(path);
+      const response = await attempt(method, target, { headers, body });
+      if (response.status !== 401 || JSON.parse(response.text).code !== 'OWNER_REQUIRED') accepted.push(method + ' ' + path + ' with ' + label + ': ' + response.status);
+    }
+    if (body !== undefined) {
+      const response = await attempt(method, path, { body: { ...body, credential, owner: credential, [ownerHeader]: credential } });
+      if (response.status !== 401) accepted.push(method + ' ' + path + ' with body fields: ' + response.status);
+    }
+  }
+  // The event stream, the route a captured cookie would most want, is refused on every carrier too.
+  for (const [label, headers, query] of [
+    ['a cookie named for this port', { cookie: 'bloom_owner_' + port + '=' + credential }, ''],
+    ['a cookie named for another port', { cookie: 'bloom_owner_' + (port + 1) + '=' + credential }, ''],
+    ['a plain cookie', { cookie: ownerHeader + '=' + credential }, ''],
+    ['a cookie and a cursor', { cookie: 'bloom_owner_' + port + '=' + credential }, '?after=0'],
+    ['a cookie and last-event-id', { cookie: 'bloom_owner_' + port + '=' + credential, 'last-event-id': '0' }, ''],
+    ['a query parameter', {}, '?after=0&' + ownerHeader + '=' + credential],
+    ['an owner query parameter', {}, '?owner=' + credential + '&credential=' + credential],
+  ]) {
+    const stream = await channel.events('', session.id, () => {}, { headers, query });
+    if (stream.status !== 401) accepted.push('event stream with ' + label + ': ' + stream.status);
+  }
+  assert.deepEqual(accepted, []);
+  assert.equal(channel.store.listSessions().length, before.sessions);
+  assert.equal(channel.store.eventsAfter(session.id, 0).length, before.events);
+  // The same credential in the header opens the same routes.
+  assert.equal((await channel.call('GET', '/api/info', { credential })).status, 200);
+  assert.equal((await channel.call('GET', '/api/sessions', { credential })).status, 200);
+  assert.equal((await channel.call('GET', tm, { credential })).status, 200);
+  const stream = await channel.events(credential, session.id, () => {}, { query: '?after=0' });
+  assert.equal(stream.status, 200);
 });
 
 function filesUnder(directory) {
@@ -672,19 +775,18 @@ test('owner-channel-keeps-the-credential-out-of-records', async t => {
   writeFileSync(join(channel.workspace, 'helper.mjs'), helperSource);
   const code = channel.owner?.launchCode() ?? 'no-launch-code';
   const signIn = await channel.call('POST', '/api/launch', { headers: { origin: 'http://' + channel.address }, body: { code } });
-  const cookie = cookiePair(signIn.headers['set-cookie']?.[0]);
-  const credential = cookie.split('=')[1] ?? '';
+  const credential = launchCredential(signIn);
   assert.match(credential, /^[\w-]{43}$/);
-  const session = (await channel.call('POST', '/api/sessions', { cookie, body: { workspace: channel.workspace } })).json();
+  const session = (await channel.call('POST', '/api/sessions', { credential, body: { workspace: channel.workspace } })).json();
   let finished;
   const done = new Promise(resolve => { finished = resolve; });
-  const stream = await channel.events(cookie, session.id, event => {
+  const stream = await channel.events(credential, session.id, event => {
     if (event.type === 'turn.finished') finished(event.data);
     if (event.type === 'permission.requested') {
-      void channel.call('POST', '/api/sessions/' + session.id + '/permissions/' + event.data.id, { cookie, body: { optionId: 'allow-once' } });
+      void channel.call('POST', '/api/sessions/' + session.id + '/permissions/' + event.data.id, { credential, body: { optionId: 'allow-once' } });
     }
   });
-  await channel.call('POST', '/api/sessions/' + session.id + '/turns', { cookie, body: { text: 'Build and add a note.' } });
+  await channel.call('POST', '/api/sessions/' + session.id + '/turns', { credential, body: { text: 'Build and add a note.' } });
   const ending = await Promise.race([done, delay(20_000).then(() => ({ status: 'test-timeout' }))]);
   assert.equal(ending.status, 'finished');
   let exported = '';
@@ -700,8 +802,8 @@ test('owner-channel-keeps-the-credential-out-of-records', async t => {
     exported,
     prompts: JSON.stringify(channel.provider.prompts),
     childEnvironment,
-    listing: (await channel.call('GET', '/api/sessions', { cookie })).text,
-    info: (await channel.call('GET', '/api/info', { cookie })).text,
+    listing: (await channel.call('GET', '/api/sessions', { credential })).text,
+    info: (await channel.call('GET', '/api/info', { credential })).text,
   };
   for (const [name, text] of Object.entries(records)) {
     if (name !== 'logs') assert.ok(text.length > 0, name + ' is empty');
@@ -719,11 +821,11 @@ test('owner-channel-keeps-the-credential-out-of-records', async t => {
 });
 
 // Ask the real launcher, over its own listener, the way the owner's tab does.
-function loopbackCall(address, method, path, { cookie, headers = {}, body } = {}) {
+function loopbackCall(address, method, path, { credential, headers = {}, body } = {}) {
   const [hostname, port] = address.split(':');
   return new Promise((resolve, reject) => {
     const request = httpRequest({ host: hostname, port: Number(port), method, path, headers: {
-      host: address, 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers,
+      host: address, 'content-type': 'application/json', ...(credential ? { [ownerHeader]: credential } : {}), ...headers,
     } }, response => {
       let text = '';
       response.setEncoding('utf8');
@@ -760,10 +862,11 @@ test('owner-channel-launch-link-signs-in-and-the-credential-is-never-printed', a
   assert.equal((await loopbackCall(address, 'GET', '/api/sessions')).status, 401);
   const signIn = await loopbackCall(address, 'POST', '/api/launch', { headers: { origin: 'http://' + address }, body: { code } });
   assert.equal(signIn.status, 200);
-  const cookie = cookiePair(signIn.headers['set-cookie']?.[0]);
-  const credential = cookie.split('=')[1] ?? '';
+  assert.equal(signIn.headers['set-cookie'], undefined);
+  const credential = launchCredential(signIn);
   assert.match(credential, /^[\w-]{43}$/);
-  assert.equal((await loopbackCall(address, 'GET', '/api/sessions', { cookie })).status, 200);
+  assert.equal((await loopbackCall(address, 'GET', '/api/sessions', { credential })).status, 200);
+  assert.equal((await loopbackCall(address, 'GET', '/api/sessions', { headers: { cookie: 'bloom_owner_' + address.split(':')[1] + '=' + credential } })).status, 401);
   assert.equal((await loopbackCall(address, 'POST', '/api/launch', { headers: { origin: 'http://' + address }, body: { code } })).status, 403);
   child.kill();
   await closed;

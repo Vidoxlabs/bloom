@@ -52,7 +52,7 @@ server.on('error', error => {
 server.listen(port, '127.0.0.1', () => {
   const { address, port: listening } = server.address();
   // The one-time code rides in the fragment, which the browser never sends to a server. The page
-  // removes it from the address bar and trades it for this launch's owner cookie.
+  // removes it from the address bar and trades it for this launch's owner credential.
   console.log('Bloom is open at http://' + address + ':' + listening + '/#launch=' + owner.launchCode());
   console.log('Open that link once in your browser. It signs that browser in until Bloom stops.');
 });
