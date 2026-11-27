@@ -21,7 +21,7 @@ Download `bloom-VERSION.zip` from the [latest release](https://github.com/Vidoxl
 npm run demo
 ```
 
-Open **http://127.0.0.1:4317**, choose **Create a team** and give the head agent a name. Use **Add file** to paste some project notes, select **Try a sample task**, and send it. Open the assembler’s file in the group chat. The demo is scripted and requires no key. Its outputs and usage display identify it as a demonstration.
+Open the link Bloom prints in the terminal when it starts; it ends in `#launch=` and a one-time code. The link works once and signs in that browser tab until Bloom stops or the tab closes. Reloading the tab keeps it signed in. To sign in another tab, restart Bloom and open the new link. After a restart the old tab is signed out; open the new link to reconnect. Then choose **Create a team** and give the head agent a name. Use **Add file** to paste some project notes, select **Try a sample task**, and send it. Open the assembler’s file in the group chat. The demo is scripted and requires no key. Its outputs and usage display identify it as a demonstration.
 
 Run `node bin/bloom.mjs eval --smoke` to check the built-in coding fixture offline and print its deterministic report.
 

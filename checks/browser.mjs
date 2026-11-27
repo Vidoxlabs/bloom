@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { startDemo } from './network.mjs';
 
 test('a person can brief a team, open its reviewed file and return on a phone', async t => {
-  const host = await startDemo(t);
+  const { link } = await startDemo(t);
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({viewport:{width:1440,height:1000}});
   const errors = [];
   page.on('pageerror',error => errors.push(error.message));
-  await page.goto(host);
+  await page.goto(link);
   await page.getByRole('heading',{name:'What should we work on?',exact:true}).waitFor();
   await page.getByRole('button',{name:'Create a coding session',exact:true}).click();
   assert.equal(await page.locator('#kind').inputValue(),'direct');
@@ -180,5 +183,90 @@ test('a person can brief a team, open its reviewed file and return on a phone', 
     await page.setViewportSize({width,height:900});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true);
   }
+  assert.deepEqual(errors,[]);
+});
+
+// Bloom on a given port and data directory, so a restart is the same origin and the same sessions
+// to a tab that stays open, as when a person restarts Bloom.
+async function launchBloom(t, directory, port = 0) {
+  const child = spawn(process.execPath, ['src/main.mjs','--demo','--port',String(port),'--data-dir',directory], { stdio:['ignore','pipe','pipe'] });
+  const stop = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const closed = once(child, 'close');
+    child.kill();
+    await closed;
+  };
+  t.after(stop);
+  const link = await new Promise((resolve,reject) => {
+    const timer = setTimeout(() => reject(new Error('Bloom listener timed out')), 8000);
+    let log = '';
+    child.stdout.on('data',chunk => {
+      log += chunk;
+      const found = log.match(/http:\/\/127\.0\.0\.1:\d+\/#launch=[\w-]+/)?.[0];
+      if (found) { clearTimeout(timer); resolve(found); }
+    });
+    child.on('exit',code => {clearTimeout(timer); reject(new Error('Bloom listener exited: '+code));});
+  });
+  return { link, origin: new URL(link).origin, port: Number(new URL(link).port), stop };
+}
+
+test('a tab that already shows Bloom signs in and reconnects when it opens a new launch link', async t => {
+  const directory = mkdtempSync(join(tmpdir(),'bloom-relaunch-'));
+  t.after(() => rmSync(directory,{ recursive: true, force: true, maxRetries: 4, retryDelay: 100 }));
+  let bloom = await launchBloom(t, directory);
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror',error => errors.push(error.message));
+  const streams = new Set();
+  page.on('request',request => { if (/\/events\?/.test(request.url())) streams.add(request); });
+  for (const settled of ['requestfinished','requestfailed']) page.on(settled,request => streams.delete(request));
+  // Opening a link in a tab that already shows Bloom changes only the fragment.
+  const openLink = link => page.evaluate(hash => { location.hash = hash; }, new URL(link).hash);
+  const connected = () => page.waitForFunction(() => document.getElementById('connection').textContent === ''
+    && !document.getElementById('composer').hidden && document.getElementById('error').hidden, null, { timeout: 8000 });
+
+  // A bookmarked tab at / is refused. Its refused first request is held until after the tab has
+  // signed in from the link, so that late refusal must not sign the tab out again.
+  let release;
+  const refused = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/info', route => route.request().headers()['x-bloom-owner'] ? route.continue() : release(route));
+  await page.goto(bloom.origin + '/');
+  const late = await refused;
+  await openLink(bloom.link);
+  await page.locator('#runtime',{hasText:'Scripted demo'}).waitFor({ timeout: 8000 });
+  await late.continue();
+  await page.unroute('**/api/info');
+  await page.getByRole('button',{name:'Create a team',exact:true}).waitFor();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#runtime').innerText(),'Scripted demo');
+  assert.equal(await page.locator('#error').isHidden(),true);
+
+  await page.getByRole('button',{name:'Create a team',exact:true}).click();
+  await page.getByLabel('Head agent name',{exact:true}).fill('Night desk');
+  await page.getByRole('button',{name:'Create team',exact:true}).click();
+  await page.getByRole('button',{name:'Try a sample task',exact:true}).click();
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await page.getByRole('button',{name:/Open Assembler/}).waitFor();
+  await connected();
+  const messages = await page.locator('#transcript article').count();
+  assert.ok(messages > 0);
+
+  // A restart signs the open tab out. The new link reconnects the same tab without a reload, once.
+  await bloom.stop();
+  bloom = await launchBloom(t, directory, bloom.port);
+  await page.locator('#connection',{hasText:'Disconnected'}).waitFor({ timeout: 20000 });
+  await openLink(bloom.link);
+  await connected();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('#transcript article').count(), messages, 'the reconnected stream replays each message once');
+  assert.equal(await page.locator('#session-list button').count(), 1);
+  assert.equal(streams.size, 1, 'one event stream is open');
+
+  // The reconnected tab stays signed in across a reload.
+  await page.reload();
+  await page.getByRole('button',{name:/Open Assembler/}).waitFor();
+  await connected();
   assert.deepEqual(errors,[]);
 });

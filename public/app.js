@@ -23,16 +23,58 @@ function node(tag, text, className) {
   return element;
 }
 
+// The owner credential for this launch lives in this tab's session storage. That storage belongs
+// to this origin (scheme, host and port), so a page on another port cannot read it, and it ends
+// when the tab closes. The credential goes out only as a request header, never as a cookie.
+const ownerKey = 'vibloom.owner';
+function ownerCredential() {
+  try { return sessionStorage.getItem(ownerKey); } catch { return null; }
+}
+function keepCredential(value) {
+  try {
+    if (value) sessionStorage.setItem(ownerKey, value);
+    else sessionStorage.removeItem(ownerKey);
+  } catch {
+    // Storage is unavailable; this tab then stays signed out.
+  }
+}
+function ownerHeaders(headers = {}) {
+  const credential = ownerCredential();
+  return credential ? { ...headers, 'x-bloom-owner': credential } : headers;
+}
+// A refused credential (for example after a restart) is not worth keeping. A late refusal of a
+// request sent with an earlier credential, or with none, leaves the tab's newer credential in place.
+function checkSignedIn(response, headers) {
+  if (response.status === 401 && ownerCredential() === (headers['x-bloom-owner'] ?? null)) keepCredential(null);
+}
+
 async function request(path, body, method = 'POST') {
-  const response = await fetch(path, body === undefined ? {} : {
-    method,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const headers = ownerHeaders(body === undefined ? {} : { 'content-type': 'application/json' });
+  const response = await fetch(path, body === undefined ? { headers } : { method, headers, body: JSON.stringify(body) });
+  checkSignedIn(response, headers);
   const data = await response.json();
   if (!response.ok) throw new Error(data.message ?? 'The request failed.');
   return data;
 }
+
+// The launch link carries a one-time code in its fragment. Remove it from the address bar and
+// this history entry before using it, then trade it for the launch's owner credential.
+async function claimLaunch() {
+  const code = /^#launch=([\w-]{1,128})$/.exec(location.hash)?.[1];
+  if (!code) return false;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const { credential } = await request('/api/launch', { code });
+    keepCredential(credential);
+    return true;
+  } catch {
+    // A used or stale code: the next request reports whether this tab is still signed in.
+    return false;
+  }
+}
+// Opening a link in a tab that already shows Bloom (a bookmark, a refused request or a restart)
+// changes only the fragment, so a successful claim starts the page again in place.
+window.addEventListener('hashchange', async () => { if (await claimLaunch()) await start(); });
 
 function error(message = '') {
   $('error').textContent = message;
@@ -42,6 +84,58 @@ function error(message = '') {
 const team = teamView({ $, node, request, error, state });
 
 function sessionEndpoint(id, suffix) { return '/api/sessions/' + id + '/' + suffix; }
+
+// The session's event stream, read with fetch because EventSource cannot send the owner header.
+// It resumes after the last event id it saw, retries a dropped connection, and stops when the
+// server refuses it. Handlers: onopen(), onerror(closed), onmessage({ data }).
+function eventStream(id, handlers) {
+  const controller = new AbortController();
+  let after = 0;
+  let retry = 1000;
+  async function read() {
+    const headers = ownerHeaders({ accept: 'text/event-stream' });
+    const response = await fetch(sessionEndpoint(id, 'events') + '?after=' + after, {
+      headers, cache: 'no-store', signal: controller.signal,
+    });
+    checkSignedIn(response, headers);
+    if (!response.ok || !response.body) return response.status >= 400 && response.status < 500;
+    retry = 1000;
+    handlers.onopen?.();
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return false;
+      buffer += value;
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop();
+      for (const block of blocks) {
+        let data = null;
+        for (const line of block.split(/\r?\n/)) {
+          if (line.startsWith('id:')) {
+            const seq = Number(line.slice(3).trim());
+            if (Number.isSafeInteger(seq) && seq >= 0) after = seq;
+          } else if (line.startsWith('data:')) {
+            data = (data === null ? '' : data + '\n') + line.slice(5).replace(/^ /, '');
+          }
+        }
+        if (data !== null && !controller.signal.aborted) handlers.onmessage?.({ data });
+      }
+    }
+  }
+  void (async () => {
+    while (!controller.signal.aborted) {
+      let closed = false;
+      try { closed = await read(); } catch { /* a dropped connection; retry below */ }
+      if (controller.signal.aborted) return;
+      handlers.onerror?.(closed);
+      if (closed) return;
+      await new Promise(resolve => setTimeout(resolve, retry));
+      retry = Math.min(retry * 2, 15000);
+    }
+  })();
+  return { close: () => controller.abort() };
+}
 
 function showForm(open) {
   $('session-form').hidden = !open;
@@ -101,8 +195,9 @@ function renderUsage() {
   $('usage').replaceChildren(usageBudget(state.usage));
 }
 
-function selectSession(session) {
-  if (session.id === state.session?.id) return;
+// reconnect reopens the selected session's stream, as after signing in again.
+function selectSession(session, reconnect = false) {
+  if (!reconnect && session.id === state.session?.id) return;
   if (state.session) drafts.set(state.session.id, $('prompt').value);
   state.stream?.close();
   state.session = session;
@@ -133,23 +228,26 @@ function selectSession(session) {
   localStorage.setItem('vibloom.session', session.id);
   renderSessionList();
 
-  const stream = new EventSource(sessionEndpoint(session.id, 'events'));
+  const stream = eventStream(session.id, {
+    onopen() {
+      if (state.stream !== stream) return;
+      state.connected = true;
+      $('connection').textContent = '';
+      updateComposer();
+    },
+    onerror(closed) {
+      if (state.stream !== stream) return;
+      state.connected = false;
+      // A refused stream (for example after a restart) closes instead of retrying.
+      $('connection').textContent = closed ? 'Disconnected' : 'Reconnecting';
+      if (closed) error('The workspace stream closed. If Bloom restarted, open the new launch link it printed.');
+      updateComposer();
+    },
+    onmessage(message) {
+      if (state.stream === stream) apply(JSON.parse(message.data));
+    },
+  });
   state.stream = stream;
-  stream.onopen = () => {
-    if (state.stream !== stream) return;
-    state.connected = true;
-    $('connection').textContent = '';
-    updateComposer();
-  };
-  stream.onerror = () => {
-    if (state.stream !== stream) return;
-    state.connected = false;
-    $('connection').textContent = 'Reconnecting';
-    updateComposer();
-  };
-  stream.onmessage = message => {
-    if (state.stream === stream) apply(JSON.parse(message.data));
-  };
 }
 
 function message(turnId, role, text, speaker, file, assignments, verdict, extra = {}) {
@@ -398,21 +496,55 @@ $('stop').onclick = async () => {
   catch (failure) { if (state.session.id === session.id) error(failure.message); }
 };
 
-try {
-  const info = await request('/api/info');
-  state.adapterLabels = new Map(info.adapters.map(({ id, label }) => [id, label]));
-  // A coding session needs a runtime. Without one, offer teams only.
-  if (!info.adapters.length) {
-    $('kind').querySelector('option[value="direct"]')?.remove();
-    $('empty-direct').hidden = true;
+// A plain link cannot send the owner header, so the reader's download is fetched with it and
+// saved from a local object URL.
+$('download').addEventListener('click', async event => {
+  event.preventDefault();
+  try {
+    const headers = ownerHeaders();
+    const response = await fetch(event.currentTarget.href, { headers });
+    checkSignedIn(response, headers);
+    if (!response.ok) throw new Error((await response.json()).message ?? 'The download failed.');
+    const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'file.md';
+    const url = URL.createObjectURL(await response.blob());
+    const save = Object.assign(document.createElement('a'), { href: url, download: name, hidden: true });
+    document.body.append(save);
+    save.click();
+    save.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (failure) {
+    error(failure.message);
   }
-  $('runtime').textContent = info.teamProvider.label;
-  $('team-model').value = info.teamProvider.model;
-  $('workspace').value = info.defaultWorkspace ?? '';
-  await Promise.all([refreshSessions(), team.loadPersonas()]);
-  const last = state.sessions.find(session => session.id === localStorage.getItem('vibloom.session'));
-  if (last ?? state.sessions[0]) selectSession(last ?? state.sessions[0]);
-} catch (failure) {
-  $('runtime').textContent = 'Unavailable';
-  error(failure.message);
+});
+
+// Load the runtime, sessions and personas, then reopen the last session. A later start (after a
+// claim) supersedes an earlier one still in flight, whose results and errors are then dropped.
+let starts = 0;
+async function start() {
+  const run = ++starts;
+  try {
+    const info = await request('/api/info');
+    if (run !== starts) return;
+    error();
+    state.adapterLabels = new Map(info.adapters.map(({ id, label }) => [id, label]));
+    // A coding session needs a runtime. Without one, offer teams only.
+    if (!info.adapters.length) {
+      $('kind').querySelector('option[value="direct"]')?.remove();
+      $('empty-direct').hidden = true;
+    }
+    $('runtime').textContent = info.teamProvider.label;
+    $('team-model').value = info.teamProvider.model;
+    $('workspace').value = info.defaultWorkspace ?? '';
+    await Promise.all([refreshSessions(), team.loadPersonas()]);
+    if (run !== starts) return;
+    const last = state.sessions.find(session => session.id === localStorage.getItem('vibloom.session'));
+    if (last ?? state.sessions[0]) selectSession(last ?? state.sessions[0], true);
+  } catch (failure) {
+    if (run !== starts) return;
+    $('runtime').textContent = 'Unavailable';
+    error(failure.message);
+  }
 }
+
+await claimLaunch();
+await start();
