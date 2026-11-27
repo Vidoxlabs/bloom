@@ -23,27 +23,53 @@ function node(tag, text, className) {
   return element;
 }
 
+// The owner credential for this launch lives in this tab's session storage. That storage belongs
+// to this origin (scheme, host and port), so a page on another port cannot read it, and it ends
+// when the tab closes. The credential goes out only as a request header, never as a cookie.
+const ownerKey = 'vibloom.owner';
+function ownerCredential() {
+  try { return sessionStorage.getItem(ownerKey); } catch { return null; }
+}
+function keepCredential(value) {
+  try {
+    if (value) sessionStorage.setItem(ownerKey, value);
+    else sessionStorage.removeItem(ownerKey);
+  } catch {
+    // Storage is unavailable; this tab then stays signed out.
+  }
+}
+function ownerHeaders(headers = {}) {
+  const credential = ownerCredential();
+  return credential ? { ...headers, 'x-bloom-owner': credential } : headers;
+}
+// A refused credential (for example after a restart) is not worth keeping.
+function checkSignedIn(response) {
+  if (response.status === 401) keepCredential(null);
+}
+
 async function request(path, body, method = 'POST') {
-  const response = await fetch(path, body === undefined ? {} : {
+  const response = await fetch(path, body === undefined ? { headers: ownerHeaders() } : {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: ownerHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body),
   });
+  checkSignedIn(response);
   const data = await response.json();
   if (!response.ok) throw new Error(data.message ?? 'The request failed.');
   return data;
 }
 
 // The launch link carries a one-time code in its fragment. Remove it from the address bar and
-// this history entry before using it, then trade it for the launch's HttpOnly owner cookie.
+// this history entry before using it, then trade it for the launch's owner credential.
 async function claimLaunch() {
   const code = /^#launch=([\w-]{1,128})$/.exec(location.hash)?.[1];
   if (!code) return;
   history.replaceState(null, '', location.pathname + location.search);
   try {
-    await request('/api/launch', { code });
+    const { credential } = await request('/api/launch', { code });
+    keepCredential(credential);
   } catch {
-    // A used or stale code: the next request reports whether this browser is still signed in.
+    // A used or stale code: the next request reports whether this tab is still signed in.
   }
 }
 // Opening the link again in a tab that already shows Bloom changes only the fragment.
@@ -57,6 +83,57 @@ function error(message = '') {
 const team = teamView({ $, node, request, error, state });
 
 function sessionEndpoint(id, suffix) { return '/api/sessions/' + id + '/' + suffix; }
+
+// The session's event stream, read with fetch because EventSource cannot send the owner header.
+// It resumes after the last event id it saw, retries a dropped connection, and stops when the
+// server refuses it. Handlers: onopen(), onerror(closed), onmessage({ data }).
+function eventStream(id, handlers) {
+  const controller = new AbortController();
+  let after = 0;
+  let retry = 1000;
+  async function read() {
+    const response = await fetch(sessionEndpoint(id, 'events') + '?after=' + after, {
+      headers: ownerHeaders({ accept: 'text/event-stream' }), cache: 'no-store', signal: controller.signal,
+    });
+    checkSignedIn(response);
+    if (!response.ok || !response.body) return response.status >= 400 && response.status < 500;
+    retry = 1000;
+    handlers.onopen?.();
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return false;
+      buffer += value;
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop();
+      for (const block of blocks) {
+        let data = null;
+        for (const line of block.split(/\r?\n/)) {
+          if (line.startsWith('id:')) {
+            const seq = Number(line.slice(3).trim());
+            if (Number.isSafeInteger(seq) && seq >= 0) after = seq;
+          } else if (line.startsWith('data:')) {
+            data = (data === null ? '' : data + '\n') + line.slice(5).replace(/^ /, '');
+          }
+        }
+        if (data !== null && !controller.signal.aborted) handlers.onmessage?.({ data });
+      }
+    }
+  }
+  void (async () => {
+    while (!controller.signal.aborted) {
+      let closed = false;
+      try { closed = await read(); } catch { /* a dropped connection; retry below */ }
+      if (controller.signal.aborted) return;
+      handlers.onerror?.(closed);
+      if (closed) return;
+      await new Promise(resolve => setTimeout(resolve, retry));
+      retry = Math.min(retry * 2, 15000);
+    }
+  })();
+  return { close: () => controller.abort() };
+}
 
 function showForm(open) {
   $('session-form').hidden = !open;
@@ -148,26 +225,26 @@ function selectSession(session) {
   localStorage.setItem('vibloom.session', session.id);
   renderSessionList();
 
-  const stream = new EventSource(sessionEndpoint(session.id, 'events'));
+  const stream = eventStream(session.id, {
+    onopen() {
+      if (state.stream !== stream) return;
+      state.connected = true;
+      $('connection').textContent = '';
+      updateComposer();
+    },
+    onerror(closed) {
+      if (state.stream !== stream) return;
+      state.connected = false;
+      // A refused stream (for example after a restart) closes instead of retrying.
+      $('connection').textContent = closed ? 'Disconnected' : 'Reconnecting';
+      if (closed) error('The workspace stream closed. If Bloom restarted, open the new launch link it printed.');
+      updateComposer();
+    },
+    onmessage(message) {
+      if (state.stream === stream) apply(JSON.parse(message.data));
+    },
+  });
   state.stream = stream;
-  stream.onopen = () => {
-    if (state.stream !== stream) return;
-    state.connected = true;
-    $('connection').textContent = '';
-    updateComposer();
-  };
-  stream.onerror = () => {
-    if (state.stream !== stream) return;
-    state.connected = false;
-    // A refused stream (for example after a restart) closes instead of retrying.
-    const closed = stream.readyState === EventSource.CLOSED;
-    $('connection').textContent = closed ? 'Disconnected' : 'Reconnecting';
-    if (closed) error('The workspace stream closed. If Bloom restarted, open the new launch link it printed.');
-    updateComposer();
-  };
-  stream.onmessage = message => {
-    if (state.stream === stream) apply(JSON.parse(message.data));
-  };
 }
 
 function message(turnId, role, text, speaker, file, assignments, verdict, extra = {}) {
@@ -415,6 +492,26 @@ $('stop').onclick = async () => {
   try { await request(sessionEndpoint(session.id, 'stop'), { turnId: currentTurn }); }
   catch (failure) { if (state.session.id === session.id) error(failure.message); }
 };
+
+// A plain link cannot send the owner header, so the reader's download is fetched with it and
+// saved from a local object URL.
+$('download').addEventListener('click', async event => {
+  event.preventDefault();
+  try {
+    const response = await fetch(event.currentTarget.href, { headers: ownerHeaders() });
+    checkSignedIn(response);
+    if (!response.ok) throw new Error((await response.json()).message ?? 'The download failed.');
+    const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'file.md';
+    const url = URL.createObjectURL(await response.blob());
+    const save = Object.assign(document.createElement('a'), { href: url, download: name, hidden: true });
+    document.body.append(save);
+    save.click();
+    save.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (failure) {
+    error(failure.message);
+  }
+});
 
 try {
   await claimLaunch();
