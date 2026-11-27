@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BloomError } from './errors.mjs';
 
@@ -42,6 +43,46 @@ async function readConfirmedNoteWrite(request, teams, id) {
   return body;
 }
 
+// Owner-channel authentication for one launch (ADR 0004). The loopback listener limits who can
+// connect and the Host and Origin checks limit which page can ask; neither says who is asking.
+// The owner credential and the one-time launch code live only in this closure: never in the
+// process environment, a file, an event or a log. A restart makes new ones, so an earlier
+// launch's cookie is refused. This is not isolation from code running as the same OS user.
+export function createOwnerChannel() {
+  const credential = randomBytes(32).toString('base64url');
+  let code = randomBytes(32).toString('base64url');
+  let issued = false;
+  return Object.freeze({
+    // The code for the launch link, handed out once.
+    launchCode() {
+      if (issued || code === null) return null;
+      issued = true;
+      return code;
+    },
+    // Trade the code for the credential, once.
+    exchange(candidate) {
+      if (code === null || !sameSecret(candidate, code)) return null;
+      code = null;
+      return credential;
+    },
+    verify(candidate) {
+      return sameSecret(candidate, credential);
+    },
+  });
+}
+
+// Constant-time comparison. Hashing first gives equal lengths, so a length never leaks either.
+function sameSecret(candidate, expected) {
+  if (typeof candidate !== 'string' || !candidate) return false;
+  const digest = value => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(candidate), digest(expected));
+}
+
+function cookieValues(header, name) {
+  if (typeof header !== 'string') return [];
+  return header.split(';').map(part => part.trim()).filter(part => part.startsWith(name + '=')).map(part => part.slice(name.length + 1));
+}
+
 function json(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(body));
@@ -77,7 +118,7 @@ function stream(request, response, url, harness, sessionId) {
   pump();
 }
 
-export function createHandler(harness) {
+export function createHandler(harness, { owner } = {}) {
   return async (request, response) => {
     response.setHeader('cache-control', 'no-store');
     response.setHeader('x-content-type-options', 'nosniff');
@@ -100,6 +141,31 @@ export function createHandler(harness) {
         response.writeHead(200, { 'content-type': contentType });
         response.end(readFileSync(new URL('../public/' + name, import.meta.url)));
         return;
+      }
+      if (pathname.startsWith('/api/')) {
+        // Browsers mark each request's relation to the page; only the page's own requests pass.
+        const site = request.headers['sec-fetch-site'];
+        if (site !== undefined && site !== 'same-origin') {
+          throw new BloomError('ORIGIN_MISMATCH', 'Open the workspace from the Bloom tab.', 403);
+        }
+        // Cookies are shared across ports on one host, so the name carries this listener's port.
+        const cookieName = 'bloom_owner_' + (host.split(':')[1] ?? '80');
+        if (method === 'POST' && pathname === '/api/launch') {
+          if (request.headers.origin !== origin) {
+            throw new BloomError('ORIGIN_MISMATCH', 'Open the launch link in your browser.', 403);
+          }
+          const credential = owner?.exchange((await readBody(request)).code) ?? null;
+          if (!credential) {
+            throw new BloomError('LAUNCH_CODE_INVALID', 'This launch link was already used or belongs to an earlier launch. Restart Bloom and open the new link.', 403);
+          }
+          response.setHeader('set-cookie', cookieName + '=' + credential + '; Path=/; HttpOnly; SameSite=Strict');
+          return json(response, 200, { owner: true });
+        }
+        // Every other API route reads or changes session data, so it needs the owner credential,
+        // checked before the body is read or any state is touched.
+        if (!owner || !cookieValues(request.headers.cookie, cookieName).some(value => owner.verify(value))) {
+          throw new BloomError('OWNER_REQUIRED', 'Open Bloom from the launch link it printed when it started.', 401);
+        }
       }
       if (method === 'GET' && pathname === '/api/info') return json(response, 200, harness.info());
       if (method === 'POST' && pathname === '/api/teams') return json(response, 201, harness.teams.create(await readBody(request)));

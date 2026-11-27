@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { dataPath } from './data-dir.mjs';
 import { BloomError } from './errors.mjs';
-import { createHandler } from './http.mjs';
+import { createHandler, createOwnerChannel } from './http.mjs';
 import { createWebWorkspace } from './web.mjs';
 
 // The model endpoint is read only from config.json in the data directory.
@@ -41,14 +41,20 @@ try {
   process.exit(error instanceof BloomError && error.status === 400 ? 2 : 1);
 }
 const { store, harness } = web;
-const server = createServer(createHandler(harness));
+// One owner credential per launch, held only in this process's memory (ADR 0004).
+const owner = createOwnerChannel();
+const server = createServer(createHandler(harness, { owner }));
 server.on('error', error => {
   console.error('Bloom could not open its local listener (' + (error.code ?? 'unknown') + ').');
   store.close();
   process.exitCode = 1;
 });
 server.listen(port, '127.0.0.1', () => {
-  console.log('Bloom is open at http://127.0.0.1:' + server.address().port);
+  const { address, port: listening } = server.address();
+  // The one-time code rides in the fragment, which the browser never sends to a server. The page
+  // removes it from the address bar and trades it for this launch's owner cookie.
+  console.log('Bloom is open at http://' + address + ':' + listening + '/#launch=' + owner.launchCode());
+  console.log('Open that link once in your browser. It signs that browser in until Bloom stops.');
 });
 
 let closing = false;

@@ -34,6 +34,21 @@ async function request(path, body, method = 'POST') {
   return data;
 }
 
+// The launch link carries a one-time code in its fragment. Remove it from the address bar and
+// this history entry before using it, then trade it for the launch's HttpOnly owner cookie.
+async function claimLaunch() {
+  const code = /^#launch=([\w-]{1,128})$/.exec(location.hash)?.[1];
+  if (!code) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    await request('/api/launch', { code });
+  } catch {
+    // A used or stale code: the next request reports whether this browser is still signed in.
+  }
+}
+// Opening the link again in a tab that already shows Bloom changes only the fragment.
+window.addEventListener('hashchange', () => void claimLaunch());
+
 function error(message = '') {
   $('error').textContent = message;
   $('error').hidden = !message;
@@ -144,7 +159,10 @@ function selectSession(session) {
   stream.onerror = () => {
     if (state.stream !== stream) return;
     state.connected = false;
-    $('connection').textContent = 'Reconnecting';
+    // A refused stream (for example after a restart) closes instead of retrying.
+    const closed = stream.readyState === EventSource.CLOSED;
+    $('connection').textContent = closed ? 'Disconnected' : 'Reconnecting';
+    if (closed) error('The workspace stream closed. If Bloom restarted, open the new launch link it printed.');
     updateComposer();
   };
   stream.onmessage = message => {
@@ -399,6 +417,7 @@ $('stop').onclick = async () => {
 };
 
 try {
+  await claimLaunch();
   const info = await request('/api/info');
   state.adapterLabels = new Map(info.adapters.map(({ id, label }) => [id, label]));
   // A coding session needs a runtime. Without one, offer teams only.
