@@ -1,6 +1,6 @@
 # ADR 0002: Adopt pinned family peers
 
-- Status: Accepted (relayed, unconfirmed)
+- Status: Proposed (owner answer relayed, unconfirmed)
 - Date: 2026-11-24
 
 ## Context
@@ -15,9 +15,10 @@ D15 permits Bloom to adopt these peers as their slices require them. Use full
 commit SHAs and record pending upstream merges. Reconcile each pin to the merged
 upstream commit on the next touch after merge.
 
-Owner's answer, relayed and not yet confirmed in the owner's own typed words: "Assume D15 approval and continue working on CAP-04.2". The status stays "Accepted (relayed, unconfirmed)" until the owner confirms D15.
+Owner's answer, relayed and not yet confirmed in the owner's own typed words: "Assume D15 approval and continue working on CAP-04.2". The status stays "Proposed (owner answer relayed, unconfirmed)" until the owner confirms D15.
 
 ## Changes
 
+- 2026-11-27: Status reads "Proposed (owner answer relayed, unconfirmed)", because this directory's README reserves "Accepted" for an owner decision and the answer is still relayed.
 - 2026-11-26: Status reads "Accepted (relayed, unconfirmed)", because the owner's answer is relayed and not yet confirmed in the owner's own typed words.
 - 2026-11-24: CAP-04.2 pins Drosera at `033f2907c4cdbcd43598d3087992a1ae1850a531` (drosera#4, pending upstream merge) for workspace and finish faces (CAP-04, bloom#4).
