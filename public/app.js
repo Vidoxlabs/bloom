@@ -42,18 +42,16 @@ function ownerHeaders(headers = {}) {
   const credential = ownerCredential();
   return credential ? { ...headers, 'x-bloom-owner': credential } : headers;
 }
-// A refused credential (for example after a restart) is not worth keeping.
-function checkSignedIn(response) {
-  if (response.status === 401) keepCredential(null);
+// A refused credential (for example after a restart) is not worth keeping. A late refusal of a
+// request sent with an earlier credential, or with none, leaves the tab's newer credential in place.
+function checkSignedIn(response, headers) {
+  if (response.status === 401 && ownerCredential() === (headers['x-bloom-owner'] ?? null)) keepCredential(null);
 }
 
 async function request(path, body, method = 'POST') {
-  const response = await fetch(path, body === undefined ? { headers: ownerHeaders() } : {
-    method,
-    headers: ownerHeaders({ 'content-type': 'application/json' }),
-    body: JSON.stringify(body),
-  });
-  checkSignedIn(response);
+  const headers = ownerHeaders(body === undefined ? {} : { 'content-type': 'application/json' });
+  const response = await fetch(path, body === undefined ? { headers } : { method, headers, body: JSON.stringify(body) });
+  checkSignedIn(response, headers);
   const data = await response.json();
   if (!response.ok) throw new Error(data.message ?? 'The request failed.');
   return data;
@@ -63,17 +61,20 @@ async function request(path, body, method = 'POST') {
 // this history entry before using it, then trade it for the launch's owner credential.
 async function claimLaunch() {
   const code = /^#launch=([\w-]{1,128})$/.exec(location.hash)?.[1];
-  if (!code) return;
+  if (!code) return false;
   history.replaceState(null, '', location.pathname + location.search);
   try {
     const { credential } = await request('/api/launch', { code });
     keepCredential(credential);
+    return true;
   } catch {
     // A used or stale code: the next request reports whether this tab is still signed in.
+    return false;
   }
 }
-// Opening the link again in a tab that already shows Bloom changes only the fragment.
-window.addEventListener('hashchange', () => void claimLaunch());
+// Opening a link in a tab that already shows Bloom (a bookmark, a refused request or a restart)
+// changes only the fragment, so a successful claim starts the page again in place.
+window.addEventListener('hashchange', async () => { if (await claimLaunch()) await start(); });
 
 function error(message = '') {
   $('error').textContent = message;
@@ -92,10 +93,11 @@ function eventStream(id, handlers) {
   let after = 0;
   let retry = 1000;
   async function read() {
+    const headers = ownerHeaders({ accept: 'text/event-stream' });
     const response = await fetch(sessionEndpoint(id, 'events') + '?after=' + after, {
-      headers: ownerHeaders({ accept: 'text/event-stream' }), cache: 'no-store', signal: controller.signal,
+      headers, cache: 'no-store', signal: controller.signal,
     });
-    checkSignedIn(response);
+    checkSignedIn(response, headers);
     if (!response.ok || !response.body) return response.status >= 400 && response.status < 500;
     retry = 1000;
     handlers.onopen?.();
@@ -193,8 +195,9 @@ function renderUsage() {
   $('usage').replaceChildren(usageBudget(state.usage));
 }
 
-function selectSession(session) {
-  if (session.id === state.session?.id) return;
+// reconnect reopens the selected session's stream, as after signing in again.
+function selectSession(session, reconnect = false) {
+  if (!reconnect && session.id === state.session?.id) return;
   if (state.session) drafts.set(state.session.id, $('prompt').value);
   state.stream?.close();
   state.session = session;
@@ -498,8 +501,9 @@ $('stop').onclick = async () => {
 $('download').addEventListener('click', async event => {
   event.preventDefault();
   try {
-    const response = await fetch(event.currentTarget.href, { headers: ownerHeaders() });
-    checkSignedIn(response);
+    const headers = ownerHeaders();
+    const response = await fetch(event.currentTarget.href, { headers });
+    checkSignedIn(response, headers);
     if (!response.ok) throw new Error((await response.json()).message ?? 'The download failed.');
     const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'file.md';
     const url = URL.createObjectURL(await response.blob());
@@ -513,22 +517,34 @@ $('download').addEventListener('click', async event => {
   }
 });
 
-try {
-  await claimLaunch();
-  const info = await request('/api/info');
-  state.adapterLabels = new Map(info.adapters.map(({ id, label }) => [id, label]));
-  // A coding session needs a runtime. Without one, offer teams only.
-  if (!info.adapters.length) {
-    $('kind').querySelector('option[value="direct"]')?.remove();
-    $('empty-direct').hidden = true;
+// Load the runtime, sessions and personas, then reopen the last session. A later start (after a
+// claim) supersedes an earlier one still in flight, whose results and errors are then dropped.
+let starts = 0;
+async function start() {
+  const run = ++starts;
+  try {
+    const info = await request('/api/info');
+    if (run !== starts) return;
+    error();
+    state.adapterLabels = new Map(info.adapters.map(({ id, label }) => [id, label]));
+    // A coding session needs a runtime. Without one, offer teams only.
+    if (!info.adapters.length) {
+      $('kind').querySelector('option[value="direct"]')?.remove();
+      $('empty-direct').hidden = true;
+    }
+    $('runtime').textContent = info.teamProvider.label;
+    $('team-model').value = info.teamProvider.model;
+    $('workspace').value = info.defaultWorkspace ?? '';
+    await Promise.all([refreshSessions(), team.loadPersonas()]);
+    if (run !== starts) return;
+    const last = state.sessions.find(session => session.id === localStorage.getItem('vibloom.session'));
+    if (last ?? state.sessions[0]) selectSession(last ?? state.sessions[0], true);
+  } catch (failure) {
+    if (run !== starts) return;
+    $('runtime').textContent = 'Unavailable';
+    error(failure.message);
   }
-  $('runtime').textContent = info.teamProvider.label;
-  $('team-model').value = info.teamProvider.model;
-  $('workspace').value = info.defaultWorkspace ?? '';
-  await Promise.all([refreshSessions(), team.loadPersonas()]);
-  const last = state.sessions.find(session => session.id === localStorage.getItem('vibloom.session'));
-  if (last ?? state.sessions[0]) selectSession(last ?? state.sessions[0]);
-} catch (failure) {
-  $('runtime').textContent = 'Unavailable';
-  error(failure.message);
 }
+
+await claimLaunch();
+await start();
