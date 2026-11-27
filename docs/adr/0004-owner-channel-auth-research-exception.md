@@ -148,3 +148,9 @@ Acceptance tests, in `test/http.test.mjs`:
 - 2026-11-26: Record the exception and the owner-channel authentication (CAP-04, bloom#21).
 - 2026-11-26: Carry the credential in a request header instead of a cookie, so a browser no
   longer sends it to other ports on the host (CAP-04, bloom#21).
+- 2026-11-27: Sign the CI checks in through the printed launch link and describe the owner
+  credential in the README and the architecture notes (scope amendment SA-1). A tab that already
+  shows Bloom, after a bookmark, a refused request or a restart, now starts again in place when it
+  opens a new launch link, and a late refusal of an earlier request no longer clears the new
+  credential. `checks/browser.mjs` covers it in a real browser. No route, credential or authority
+  changes (CAP-04, bloom#21).
