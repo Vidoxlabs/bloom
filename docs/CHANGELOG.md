@@ -26,6 +26,7 @@ Earlier history lives in git history and [docs/architecture.md](architecture.md)
 
 ### Fixed
 
+- Require a per-launch owner credential on every web API route, so a local process without it can no longer list sessions, read the event stream or answer an approval; the launch link signs one browser in once (CAP-04, bloom#21).
 - Check Windows metadata paths against the resolved `.git` directory and use Git to configure the command gate test repository (CAP-04, bloom#5).
 - Close the coding-loop test store before deleting its temp tree, and keep fixtures as LF, so Windows CI no longer fails on EBUSY unlinks or CRLF session exports (CAP-04, bloom#5).
 - Close the web coding-loop store before deleting its temp tree, and accept CRLF in live-test runbook fences (CAP-04, bloom#8).
