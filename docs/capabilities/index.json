@@ -141,14 +141,16 @@
         "bloom#4",
         "bloom#5",
         "bloom#8",
-        "bloom#9"
+        "bloom#9",
+        "bloom#19"
       ],
       "commits": [],
       "adr": [
-        "docs/adr/0002-family-peer-imports.md"
+        "docs/adr/0002-family-peer-imports.md",
+        "docs/adr/0003-git-write-refusal-research-exception.md"
       ],
       "decision": null,
-      "updated": "2026-11-24"
+      "updated": "2026-11-26"
     },
     {
       "id": "CAP-05",

@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import childProcess, { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { ALLOWED_COMMANDS, createWorkspaceTools, workspaceCommandAccess } from '../src/workspace-tools.mjs';
+import { openCodingSession } from './fixtures/coding-session.mjs';
+import { action, scriptedProvider } from './fixtures/demo-provider.mjs';
 
 const nodeDirectory = dirname(process.execPath);
 const refused = { code: 'WORKSPACE_COMMAND_REFUSED' };
@@ -487,4 +491,271 @@ test('git-runs-with-fsmonitor-and-hooks-disabled', async t => {
   assert.equal(diff.exitCode, 0, `diff output: ${diff.output ?? ''}`);
   assert.match(diff.output, /two/);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
+});
+
+// Git and node arguments that write into, read from, or run programs named in `.git`. Each must be
+// refused by the gate before the approval question and before the executor.
+const gitWriteForms = [
+  ['git', ['log', '-1', '--format=PROBE%n', '--output=.git/config']],
+  ['git', ['log', '-1', '--format=PROBE%n', '--output', '.git/config']],
+  ['git', ['diff', '--output=.git/config']],
+  ['git', ['diff', '--output=./.git/config']],
+  ['git', ['diff', '--output=.GIT/config']],
+  ['git', ['diff', '--output=x/../.git/config']],
+  ['git', ['diff', '--output=.git/info-probe']],
+  ['git', ['diff', '--output=.git/hooks/pre-commit']],
+  ['git', ['log', '--output=.git']],
+  ['git', ['log', '--output=notes.txt']],
+  ['git', ['log', '--outp=.git/config']],
+  ['git', ['log', '--outp=notes.txt']],
+  ['git', ['log', '--output-directory=x']],
+  ['git', ['diff', '-o', 'x']],
+  ['git', ['status', '-ccore.pager=probe']],
+  ['git', ['log', '-ccore.pager=probe']],
+  ['git', ['add', '.git/config']],
+  ['git', ['add', './.git/config']],
+  ['git', ['add', '.GIT/config']],
+  ['git', ['add', '--pathspec-from-file=.git/config']],
+  ['git', ['add', '--pathspec-from-file=paths.txt']],
+  ['git', ['commit', '-F', '.git/COMMIT_EDITMSG']],
+  ['git', ['commit', '-F.git/COMMIT_EDITMSG']],
+  ['git', ['commit', '--file=.git/COMMIT_EDITMSG']],
+  ['git', ['commit', '--template=.git/config']],
+  ['git', ['diff', '--ext-diff']],
+  ['git', ['log', '-p', '--ext-diff']],
+  ['git', ['diff', '--ext-d']],
+  ['git', ['diff', '--textconv']],
+  ['git', ['log', '-p', '--textconv']],
+  ['git', ['diff', '--textc']],
+  ['git', ['log', '--show-signature']],
+  ['git', ['commit', '-S', '-m', 'Signed']],
+  ['git', ['commit', '-Sprobe', '-m', 'Signed']],
+  ['git', ['commit', '--gpg-sign', '-m', 'Signed']],
+  ['git', ['commit', '--gpg-sign=probe', '-m', 'Signed']],
+  ['git', ['commit', '-e', '-m', 'Edited']],
+  ['git', ['diff', '--no-index', 'probe.mjs', 'notes.txt']],
+  ['git', ['log', '--upload-pack=probe']],
+  ['git', ['status', '--upload-pack=probe']],
+  ['node', ['--redirect-warnings=.git/config', 'warn.mjs']],
+  ['node', ['--redirect-warnings', '.git/config', 'warn.mjs']],
+  ['node', ['--redirect-warnings=notes.txt', 'warn.mjs']],
+  ['node', ['--redirect_warnings=notes.txt', 'warn.mjs']],
+  ['node', ['--diagnostic-dir=.git', 'warn.mjs']],
+  ['node', ['--report-dir=.git', 'warn.mjs']],
+  ['node', ['--logfile=.git/config', '--prof', 'warn.mjs']],
+  ['node', ['--env-file=probe.env', 'warn.mjs']],
+  ['node', ['--test-reporter-destination=.git/config', '--test']],
+  ['node', ['warn.mjs', '.git/config']],
+  ['npm', ['test', '--', '.git/config']],
+];
+
+const describeForm = ([command, args]) => `${command} ${args.join(' ')}`;
+
+async function digestTree(directory, base = directory, map = {}) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    const key = relative(base, path).split(sep).join('/');
+    if (entry.isDirectory()) await digestTree(path, base, map);
+    else map[key] = createHash('sha256').update(await readFile(path)).digest('hex');
+  }
+  return map;
+}
+
+// A synthetic repository with one commit and a pending change, so log and diff have output.
+async function gitFixture(root, outside) {
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: join(outside, 'empty-git-config'), GIT_CONFIG_NOSYSTEM: '1' };
+  await writeFile(join(outside, 'empty-git-config'), '');
+  const git = (...args) => {
+    const run = spawnSync('git', args, { cwd: root, encoding: 'utf8', env });
+    assert.equal(run.status, 0, run.error?.message ?? run.stderr);
+  };
+  git('init', '--quiet', '--template=');
+  await mkdir(join(root, '.git', 'hooks'));
+  git('config', '--local', 'user.name', 'Bloom Test');
+  git('config', '--local', 'user.email', 'test@example.invalid');
+  await writeFile(join(root, 'notes.txt'), 'one\n');
+  await writeFile(join(root, 'warn.mjs'), "process.emitWarning('probe');\n");
+  await writeFile(join(root, 'probe.env'), 'NODE_OPTIONS=--redirect-warnings=.git/config\n');
+  await writeFile(join(root, 'paths.txt'), '.git/config\n');
+  git('add', 'notes.txt', 'probe.mjs');
+  git('commit', '--quiet', '-m', 'Baseline');
+  await writeFile(join(root, 'notes.txt'), 'two\n');
+}
+
+test('git-ordinary-forms-pass-with-exact-argv', async t => {
+  const { root, tools } = await fixture(t);
+  await mkdir(join(root, 'src'));
+  const forms = [
+    ['status'], ['status', '--short'], ['status', '-s'], ['status', '-sb'], ['status', '--porcelain'],
+    ['status', '--porcelain=v2'], ['status', '-uno'], ['status', '--', 'src'],
+    ['diff'], ['diff', '--cached'], ['diff', '--staged'], ['diff', '--stat'], ['diff', '--name-only'],
+    ['diff', '-U5'], ['diff', '--unified=1'], ['diff', 'HEAD~1', '--', 'probe.mjs'], ['diff', '--no-ext-diff'],
+    ['log', '--oneline'], ['log', '-1'], ['log', '-n', '3'], ['log', '-n3'], ['log', '--max-count=2'],
+    ['log', '--format=%h %s'], ['log', '--pretty=oneline'], ['log', '-p', '-1'], ['log', '--stat'],
+    ['log', '--oneline', '--graph', '--all'], ['log', '--author=Bloom Test'],
+    ['add', 'probe.mjs'], ['add', '.'], ['add', '-A'], ['add', '--all'], ['add', '-u'], ['add', '--', 'probe.mjs'],
+    ['commit', '-m', 'Fix the range'], ['commit', '-mFix'], ['commit', '-am', 'Fix the range'],
+    ['commit', '--message=Fix the range'], ['commit', '-q', '-m', 'Quiet'], ['commit', '--allow-empty', '-m', 'Empty'],
+  ];
+  for (const args of forms) {
+    const injected = ['diff', 'log'].includes(args[0]) && !args.includes('--no-ext-diff');
+    const expected = injected ? [args[0], '--no-ext-diff', ...args.slice(1)] : args;
+    assert.deepEqual(await tools.checkCommand({ command: 'git', args }), { command: 'git', args: expected }, args.join(' '));
+  }
+});
+
+test('git-write-forms-refused-before-any-spawn', async t => {
+  const { root, outside, tools } = await fixture(t);
+  await gitFixture(root, outside);
+  const spawns = [];
+  const realSpawn = childProcess.spawn;
+  let live = true;
+  const spy = t.mock.method(childProcess, 'spawn', (command, args, options) => {
+    spawns.push([command, args]);
+    if (live) return realSpawn(command, args, options);
+    throw new Error('The executor spy blocks every spawn.');
+  });
+  syncBuiltinESMExports();
+  t.after(() => { spy.mock.restore(); syncBuiltinESMExports(); });
+
+  // The spy is wired to the executor: an ordinary command records exactly one spawn.
+  assert.equal((await tools.execute('workspace.shell.execute', { command: 'node', args: ['probe.mjs'] })).exitCode, 0);
+  assert.equal(spawns.length, 1);
+  spawns.length = 0;
+  live = false;
+
+  const admitted = [];
+  for (const form of gitWriteForms) {
+    const [command, args] = form;
+    for (const run of [() => tools.checkCommand({ command, args }), () => tools.execute('workspace.shell.execute', { command, args })]) {
+      try {
+        await run();
+        admitted.push(describeForm(form));
+      } catch (error) {
+        if (error.code !== 'WORKSPACE_COMMAND_REFUSED') admitted.push(`${describeForm(form)} (${error.code})`);
+      }
+    }
+  }
+  assert.deepEqual(admitted, [], 'every form is refused with WORKSPACE_COMMAND_REFUSED');
+  assert.deepEqual(spawns, [], 'no refused form reaches the executor');
+});
+
+test('git-write-forms-leave-dot-git-byte-identical', async t => {
+  const { root, outside, tools } = await fixture(t, { timeoutMs: 3000 });
+  await gitFixture(root, outside);
+  const changed = [];
+  for (const form of gitWriteForms) {
+    const [command, args] = form;
+    const before = await digestTree(join(root, '.git'));
+    let outcome = 'refused';
+    try {
+      await tools.execute('workspace.shell.execute', { command, args });
+      outcome = 'admitted';
+    } catch (error) {
+      if (error.code !== 'WORKSPACE_COMMAND_REFUSED') outcome = error.code;
+    }
+    const after = await digestTree(join(root, '.git'));
+    const touched = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(key => before[key] !== after[key]);
+    if (outcome !== 'refused' || touched.length) changed.push({ form: describeForm(form), outcome, touched });
+  }
+  assert.deepEqual(changed, [], 'each form is refused and .git is unchanged');
+});
+
+test('dot-git-segment-refused-through-links-and-attached-values', async t => {
+  const { root, outside, tools } = await fixture(t);
+  await gitFixture(root, outside);
+  try {
+    await symlink(join(root, '.git'), join(root, 'gitlink'), process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if (!['EACCES', 'ENOSYS', 'ENOTSUP', 'EPERM'].includes(error.code)) throw error;
+    t.skip(`Directory links unavailable: ${error.code}`);
+    return;
+  }
+  const forms = [
+    ['git', ['add', 'gitlink/config']],
+    ['git', ['log', '--', 'gitlink/config']],
+    ['git', ['commit', '-am.git/config']],
+    ['git', ['diff', '--', '.Git/config']],
+    ['node', ['--redirect-warnings=gitlink/config', 'warn.mjs']],
+    ['node', ['warn.mjs', 'gitlink/config']],
+  ];
+  for (const [command, args] of forms) {
+    await assert.rejects(tools.checkCommand({ command, args }), refused, `${command} ${args.join(' ')}`);
+  }
+});
+
+test('coding-loop-reports-git-write-refusal-without-asking', async t => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'bloom-gate-')));
+  const root = join(directory, 'workspace');
+  const outside = join(directory, 'other');
+  await Promise.all([mkdir(root), mkdir(outside)]);
+  await writeFile(join(root, 'probe.mjs'), probe);
+  await gitFixture(root, outside);
+  const before = await digestTree(join(root, '.git'));
+  const forms = [
+    { command: 'git', args: ['log', '-1', '--format=PROBE%n', '--output=.git/config'] },
+    { command: 'git', args: ['diff', '--ext-diff'] },
+    { command: 'node', args: ['--redirect-warnings=.git/config', 'warn.mjs'] },
+  ];
+  const provider = scriptedProvider([
+    ...forms.map(form => action('workspace.shell.execute', form)),
+    action('run.answer.create', { text: 'Stopped.' }),
+  ]);
+  const opened = openCodingSession({
+    dataDirectory: join(outside, 'data'), workspace: root, provider, runtime: { searchPath: resolvedSearchPath() },
+  });
+  t.after(async () => {
+    await opened.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const asked = [];
+  const { events, ending } = await opened.run('Look at the history.', request => { asked.push(request.toolId); return 'allow_once'; });
+  assert.equal(ending.status, 'finished');
+  assert.deepEqual(asked, [], 'a refused form asks no approval question');
+  const rows = events.filter(event => event.type === 'tool.updated').map(event => event.data)
+    .filter(row => row.toolId === 'workspace.shell.execute');
+  assert.equal(rows.length, forms.length);
+  for (const row of rows) {
+    assert.equal(row.status, 'refused');
+    assert.equal(row.reason, 'WORKSPACE_COMMAND_REFUSED');
+  }
+  // The refusal reason reaches the model as the observation for each refused call.
+  const observations = provider.prompts.at(-1).match(/^refused: .+$/gm) ?? [];
+  assert.equal(observations.length, forms.length, provider.prompts.at(-1));
+  assert.deepEqual(await digestTree(join(root, '.git')), before);
+});
+
+test('git-write-refusal-reasons-name-the-rule', async t => {
+  const { tools } = await fixture(t);
+  const notAllowed = sub => `That option is not allowed for git ${sub}.`;
+  const dotGit = 'Command arguments cannot name a path under .git.';
+  const cases = [
+    ['git', ['log', '--output=notes.txt'], notAllowed('log')],
+    ['git', ['log', '--outp=notes.txt'], notAllowed('log')],
+    ['git', ['diff', '--ext-d'], notAllowed('diff')],
+    ['git', ['diff', '--textc'], notAllowed('diff')],
+    ['git', ['diff', '-o', 'x'], notAllowed('diff')],
+    ['git', ['status', '-ccore.pager=probe'], notAllowed('status')],
+    ['git', ['commit', '-Sprobe', '-m', 'Signed'], notAllowed('commit')],
+    ['git', ['commit', '-m', '--output=notes.txt'], notAllowed('commit')],
+    ['git', ['log', '--format', '%s'], notAllowed('log')],
+    ['git', ['add', '.git/config'], dotGit],
+    ['git', ['diff', '--', '.GIT/config'], dotGit],
+    ['git', ['commit', '-am.git/config'], dotGit],
+    ['node', ['warn.mjs', './.git/config'], dotGit],
+    ['npm', ['test', '--', 'sub/.git/config'], dotGit],
+    ['node', ['--redirect-warnings=notes.txt', 'warn.mjs'], 'That node option writes files or reads options from a file.'],
+    ['node', ['--env_file=probe.env', 'warn.mjs'], 'That node option writes files or reads options from a file.'],
+  ];
+  for (const [command, args, reason] of cases) {
+    await assert.rejects(tools.checkCommand({ command, args }), error => {
+      assert.equal(error.code, 'WORKSPACE_COMMAND_REFUSED');
+      assert.equal(error.message, reason);
+      return true;
+    }, `${command} ${args.join(' ')}`);
+  }
+  // Names that only contain .git stay usable.
+  for (const args of [['add', '.gitignore'], ['add', 'docs/notes.git.md'], ['log', '--grep=git']]) {
+    await tools.checkCommand({ command: 'git', args });
+  }
 });
